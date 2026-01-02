@@ -38,5 +38,16 @@
             android:layout_height="24dip"
             android:layout_marginRight="1dip"
             android:id="@+id/topPieces" />
+
+        <ImageButton
+            android:id="@+id/ButtonBlindfold"
+            android:src="@drawable/ic_blindfold"
+            android:contentDescription="@string/pref_show_blindfold"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:layout_marginLeft="4dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:padding="4dp"
+            android:scaleType="fitCenter" />
     </TableRow>
 </TableLayout>

@@ -86,7 +86,7 @@ public class PlayActivity extends ChessBoardActivity implements EngineListener, 
     private ChessPiecesStackView bottomPieces;
     private ImageView imageTurnMe, imageTurnOpp;
     private TextView textViewOpponent, textViewMe, textViewOpponentClock, textViewMyClock, textViewEngineValue, textViewEco, textViewWhitePieces, textViewBlackPieces;
-    private ImageButton buttonEco;
+    private ImageButton buttonEco, buttonBlindfold;
     private SwitchMaterial switchSound, switchBlindfold, switchFlip, switchMoveToSpeech;
     private MoveRecyclerAdapter moveAdapter;
     private RecyclerView historyRecyclerView;
@@ -212,21 +212,27 @@ public class PlayActivity extends ChessBoardActivity implements EngineListener, 
         switchBlindfold = findViewById(R.id.SwitchBlindfold);
         switchBlindfold.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
            public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
-                if (switchBlindfold.isChecked()) {
-                    PieceSets.selectedBlindfoldMode = PieceSets.BLINDFOLD_HIDE_PIECES;
-                    rebuildBoard();
-                    topPieces.setVisibility(View.INVISIBLE);
-                    bottomPieces.setVisibility(View.INVISIBLE);
-                } else {
-                    PieceSets.selectedBlindfoldMode = PieceSets.BLINDFOLD_SHOW_PIECES;
-                    rebuildBoard();
-                    topPieces.setVisibility(View.VISIBLE);
-                    bottomPieces.setVisibility(View.VISIBLE);
-                    topPieces.invalidatePieces();
-                    bottomPieces.invalidatePieces();
-                }
+                toggleBlindfold(isChecked);
            }
        });
+
+        buttonBlindfold = findViewById(R.id.ButtonBlindfold);
+        // Set initial icon based on current state
+        if (PieceSets.selectedBlindfoldMode == PieceSets.BLINDFOLD_HIDE_PIECES) {
+            buttonBlindfold.setImageResource(R.drawable.ic_blindfold);
+        } else {
+            buttonBlindfold.setImageResource(R.drawable.ic_eye);
+        }
+        buttonBlindfold.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                boolean newState = PieceSets.selectedBlindfoldMode != PieceSets.BLINDFOLD_HIDE_PIECES;
+                toggleBlindfold(newState);
+                if (switchBlindfold != null) {
+                    switchBlindfold.setChecked(newState);
+                }
+            }
+        });
 
         switchFlip = findViewById(R.id.SwitchFlip);
         switchFlip.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
@@ -915,6 +921,28 @@ public class PlayActivity extends ChessBoardActivity implements EngineListener, 
         Log.d(TAG, "playIfEngineMove " + myTurn + " vs " + jni.getTurn() + " vsCPU " + vsCPU);
         if (myTurn != jni.getTurn() && vsCPU) {
             playIfEngineCanMove();
+        }
+    }
+
+    protected void toggleBlindfold(boolean enabled) {
+        if (enabled) {
+            PieceSets.selectedBlindfoldMode = PieceSets.BLINDFOLD_HIDE_PIECES;
+            rebuildBoard();
+            topPieces.setVisibility(View.INVISIBLE);
+            bottomPieces.setVisibility(View.INVISIBLE);
+            if (buttonBlindfold != null) {
+                buttonBlindfold.setImageResource(R.drawable.ic_blindfold);
+            }
+        } else {
+            PieceSets.selectedBlindfoldMode = PieceSets.BLINDFOLD_SHOW_PIECES;
+            rebuildBoard();
+            topPieces.setVisibility(View.VISIBLE);
+            bottomPieces.setVisibility(View.VISIBLE);
+            topPieces.invalidatePieces();
+            bottomPieces.invalidatePieces();
+            if (buttonBlindfold != null) {
+                buttonBlindfold.setImageResource(R.drawable.ic_eye);
+            }
         }
     }
 
