@@ -1,22 +1,30 @@
 <?xml version="1.0" encoding="utf-8"?>
-
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/root_layout"
-    android:orientation="vertical"
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="match_parent"
+    android:fillViewport="true"
+    android:scrollbars="vertical">
 
-    <include layout="@layout/hotspotboard_board_top"/>
-    <include
-        android:id="@+id/includeboard"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="1dip"
-        android:layout_marginBottom="1dip"
-        layout="@layout/chessboard" />
+    <LinearLayout
+        android:id="@+id/root_layout"
+        android:orientation="vertical"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content">
 
-    <include layout="@layout/hotspotboard_board_bottom"/>
+        <include layout="@layout/hotspotboard_board_top"/>
+        <include
+            android:id="@+id/includeboard"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="-7dp"
+            android:layout_marginBottom="1dip"
+            android:layout_marginLeft="16dp"
+            layout="@layout/chessboard" />
 
-    <include layout="@layout/hotspotboard_controls"/>
+        <include layout="@layout/hotspotboard_board_bottom"/>
 
-</LinearLayout>
+        <include layout="@layout/hotspotboard_controls"/>
+
+    </LinearLayout>
+
+</ScrollView>

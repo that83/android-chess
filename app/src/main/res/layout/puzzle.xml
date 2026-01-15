@@ -1,18 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="fill_parent"
-    android:layout_height="fill_parent"
-    android:padding="4dip"
-    android:orientation="vertical"
-    android:id="@+id/LayoutMain">
-    <include layout="@layout/puzzle_board_top"/>
-    <include
-        layout="@layout/chessboard"
-        android:layout_width="match_parent"
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true"
+    android:scrollbars="vertical">
+
+    <LinearLayout
+        android:layout_width="fill_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="1dip"
-        android:layout_marginBottom="1dip"
-        android:id="@+id/includeboard" />
-    <include layout="@layout/puzzle_board_bottom"/>
-    <include layout="@layout/puzzle_controls"/>
-</LinearLayout>
+        android:padding="4dip"
+        android:orientation="vertical"
+        android:id="@+id/LayoutMain">
+        <include layout="@layout/puzzle_board_top"/>
+        <include
+            layout="@layout/chessboard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="-7dp"
+            android:layout_marginBottom="1dip"
+            android:layout_marginLeft="16dp"
+            android:id="@+id/includeboard" />
+        <include layout="@layout/puzzle_board_bottom"/>
+        <include layout="@layout/puzzle_controls"/>
+    </LinearLayout>
+
+</ScrollView>

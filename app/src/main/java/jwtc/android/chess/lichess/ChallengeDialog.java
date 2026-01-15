@@ -3,11 +3,14 @@ package jwtc.android.chess.lichess;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.view.View;
+import android.widget.AdapterView;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.RadioButton;
+import android.widget.Spinner;
 import android.widget.TextView;
 
 import com.google.android.material.card.MaterialCardView;
@@ -25,6 +28,18 @@ public class ChallengeDialog extends ResultDialog<Map<String, Object>> {
     private static final String TAG = "Lichess.ChallengeDialog";
     public static final int REQUEST_CHALLENGE = 1;
     public static final int REQUEST_SEEK = 2;
+    
+    // Lichess bot usernames by level (1-8)
+    private static final String[] LICHESS_BOTS = {
+        "stockfish-bot",  // Level 1 (~800 ELO)
+        "maia1",          // Level 2 (~1100 ELO)
+        "maia5",          // Level 3 (~1400 ELO)
+        "maia9",          // Level 4 (~1700 ELO)
+        "sf-bot",         // Level 5 (~2000 ELO)
+        "stockfish-bot",  // Level 6 (~2300 ELO) - using same bot with different settings
+        "stockfish-bot",  // Level 7 (~2600 ELO)
+        "stockfish-bot"   // Level 8 (~3000+ ELO)
+    };
 
     public ChallengeDialog(Context context, ResultDialogListener<Map<String, Object>> listener, int requestCode, final SharedPreferences prefs) {
         super(context, listener, requestCode);
@@ -38,6 +53,11 @@ public class ChallengeDialog extends ResultDialog<Map<String, Object>> {
 
         final EditText editTextPlayer = findViewById(R.id.EditTextMatchOpponent);
         final TextView textViewPlayerName = findViewById(R.id.tvMatchPlayerName);
+        final RadioButton radioButtonOpponentHuman = findViewById(R.id.RadioButtonOpponentHuman);
+        final RadioButton radioButtonOpponentBot = findViewById(R.id.RadioButtonOpponentBot);
+        final LinearLayout layoutBotLevel = findViewById(R.id.LayoutBotLevel);
+        final LinearLayout layoutPlayerName = findViewById(R.id.LayoutPlayerName);
+        final Spinner spinnerBotLevel = findViewById(R.id.SpinnerBotLevel);
 
         final RadioButton radioButtonUnlimitedTime = findViewById(R.id.RadioButtonUnlimitedTime);
         final RadioButton radioButtonTimeControl = findViewById(R.id.RadioButtonTimeControl);
@@ -58,8 +78,47 @@ public class ChallengeDialog extends ResultDialog<Map<String, Object>> {
 
         final CheckBox checkBoxRated = findViewById(R.id.CheckBoxSeekRated);
 
-        // initial values
-        editTextPlayer.setText(prefs.getString("lichess_challenge_name", ""));
+        // Setup bot level spinner
+        if (requestCode == REQUEST_CHALLENGE) {
+            ArrayAdapter<CharSequence> adapter = ArrayAdapter.createFromResource(
+                context,
+                R.array.lichess_bot_levels,
+                android.R.layout.simple_spinner_item
+            );
+            adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+            spinnerBotLevel.setAdapter(adapter);
+            
+            // Load saved opponent type preference
+            boolean isBot = prefs.getBoolean("lichess_challenge_opponent_bot", false);
+            int savedBotLevel = prefs.getInt("lichess_challenge_bot_level", 0);
+            if (savedBotLevel > 0 && savedBotLevel <= LICHESS_BOTS.length) {
+                spinnerBotLevel.setSelection(savedBotLevel - 1);
+            }
+            
+            radioButtonOpponentHuman.setChecked(!isBot);
+            radioButtonOpponentBot.setChecked(isBot);
+            updateOpponentTypeUI(isBot, layoutBotLevel, layoutPlayerName, editTextPlayer, spinnerBotLevel, prefs);
+            
+            // Listener for bot level spinner
+            spinnerBotLevel.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+                @Override
+                public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                    if (radioButtonOpponentBot.isChecked()) {
+                        int botLevel = position + 1;
+                        if (botLevel >= 1 && botLevel <= LICHESS_BOTS.length) {
+                            editTextPlayer.setText(LICHESS_BOTS[botLevel - 1]);
+                        }
+                    }
+                }
+                
+                @Override
+                public void onNothingSelected(AdapterView<?> parent) {
+                }
+            });
+        } else {
+            // initial values for human player
+            editTextPlayer.setText(prefs.getString("lichess_challenge_name", ""));
+        }
         boolean withTimeControl = prefs.getBoolean("lichess_challenge_timetcontrol", true);
         int days = prefs.getInt("lichess_challenge_days", 1);
         editTextDays.setText("" + days);
@@ -124,6 +183,19 @@ public class ChallengeDialog extends ResultDialog<Map<String, Object>> {
             radioButtonRandom.setChecked(!radioButtonBlack.isChecked());
         });
 
+        // Opponent type radio buttons
+        if (requestCode == REQUEST_CHALLENGE) {
+            radioButtonOpponentHuman.setOnClickListener(v -> {
+                radioButtonOpponentBot.setChecked(!radioButtonOpponentHuman.isChecked());
+                updateOpponentTypeUI(false, layoutBotLevel, layoutPlayerName, editTextPlayer, spinnerBotLevel, prefs);
+            });
+            
+            radioButtonOpponentBot.setOnClickListener(v -> {
+                radioButtonOpponentHuman.setChecked(!radioButtonOpponentBot.isChecked());
+                updateOpponentTypeUI(true, layoutBotLevel, layoutPlayerName, editTextPlayer, spinnerBotLevel, prefs);
+            });
+        }
+
         final Button buttonOk = findViewById(R.id.ButtonChallengeOk);
         buttonOk.setOnClickListener(v -> {
 
@@ -132,10 +204,28 @@ public class ChallengeDialog extends ResultDialog<Map<String, Object>> {
 
             // username
             if (requestCode == REQUEST_CHALLENGE) {
-                String username = editTextPlayer.getText().toString();
+                String username;
+                boolean isBot = radioButtonOpponentBot.isChecked();
+                
+                if (isBot) {
+                    int botLevel = spinnerBotLevel.getSelectedItemPosition() + 1;
+                    if (botLevel >= 1 && botLevel <= LICHESS_BOTS.length) {
+                        username = LICHESS_BOTS[botLevel - 1];
+                        editor.putBoolean("lichess_challenge_opponent_bot", true);
+                        editor.putInt("lichess_challenge_bot_level", botLevel);
+                    } else {
+                        username = editTextPlayer.getText().toString();
+                    }
+                } else {
+                    username = editTextPlayer.getText().toString();
+                    editor.putBoolean("lichess_challenge_opponent_bot", false);
+                }
+                
                 if (!username.isEmpty()) {
                     data.put("username", username);
-                    editor.putString("lichess_challenge_name", username);
+                    if (!isBot) {
+                        editor.putString("lichess_challenge_name", username);
+                    }
                 }
             }
 
@@ -195,5 +285,27 @@ public class ChallengeDialog extends ResultDialog<Map<String, Object>> {
             ChallengeDialog.this.dismiss();
             setResult(null);
         });
+    }
+    
+    private void updateOpponentTypeUI(boolean isBot, LinearLayout layoutBotLevel, 
+                                     LinearLayout layoutPlayerName, EditText editTextPlayer,
+                                     Spinner spinnerBotLevel, SharedPreferences prefs) {
+        if (isBot) {
+            layoutBotLevel.setVisibility(View.VISIBLE);
+            layoutPlayerName.setVisibility(View.GONE);
+            // Auto-fill bot username when bot level is selected
+            int botLevel = spinnerBotLevel.getSelectedItemPosition() + 1;
+            if (botLevel >= 1 && botLevel <= LICHESS_BOTS.length) {
+                editTextPlayer.setText(LICHESS_BOTS[botLevel - 1]);
+            } else {
+                editTextPlayer.setText(LICHESS_BOTS[0]); // Default to level 1
+            }
+        } else {
+            layoutBotLevel.setVisibility(View.GONE);
+            layoutPlayerName.setVisibility(View.VISIBLE);
+            // Restore saved player name or clear
+            String savedName = prefs.getString("lichess_challenge_name", "");
+            editTextPlayer.setText(savedName);
+        }
     }
 }

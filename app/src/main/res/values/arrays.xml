@@ -213,4 +213,14 @@
         <item>6</item>
         <item>7</item>
     </string-array>
+    <string-array name="lichess_bot_levels">
+        <item>@string/lichess_bot_level_1</item>
+        <item>@string/lichess_bot_level_2</item>
+        <item>@string/lichess_bot_level_3</item>
+        <item>@string/lichess_bot_level_4</item>
+        <item>@string/lichess_bot_level_5</item>
+        <item>@string/lichess_bot_level_6</item>
+        <item>@string/lichess_bot_level_7</item>
+        <item>@string/lichess_bot_level_8</item>
+    </string-array>
 </resources>
