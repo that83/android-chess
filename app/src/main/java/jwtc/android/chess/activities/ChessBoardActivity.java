@@ -53,6 +53,8 @@ abstract public class ChessBoardActivity extends BaseActivity implements GameLis
     protected TextToSpeechApi textToSpeech = null;
     protected int selectedPosition = -1, premoveFrom = -1, premoveTo = -1, dpadPos = -1, lastMoveFrom = -1, lastMoveTo = -1;
     protected ArrayList<Integer> highlightedPositions = new ArrayList<Integer>();
+    protected ArrayList<Integer> hintPositions = new ArrayList<Integer>();
+    protected ArrayList<Integer> wrongPositions = new ArrayList<Integer>();
     protected ArrayList<Integer> moveToPositions = new ArrayList<Integer>();
     protected int soundTickTock, soundCheck, soundMove, soundCapture, soundNewGame;
     protected boolean skipReturn = true, showMoves = false, flipBoard = false, isBackGestureBlocked = false, moveToSpeech = false;
@@ -315,6 +317,8 @@ abstract public class ChessBoardActivity extends BaseActivity implements GameLis
                 squareView.setSelected(pos == selectedPosition);
                 squareView.setFocussed(pos == dpadPos);
                 squareView.setHighlighted(pos == lastMoveFrom || pos == lastMoveTo || highlightedPositions.contains(pos));
+                squareView.setHintHighlighted(hintPositions.contains(pos));
+                squareView.setWrongHighlighted(wrongPositions.contains(pos));
                 squareView.setMove(moveToPositions.contains(i));
                 int piece = jni.pieceAt(jni.getTurn() == BoardConstants.WHITE ? BoardConstants.BLACK : BoardConstants.WHITE, pos);
                 squareView.setBelowPiece(piece != BoardConstants.FIELD);

@@ -223,6 +223,31 @@
     <string name="pgntool_confirm_practice_reset">Are you sure you want to reset?</string>
     <string name="pgntool_import_puzzle">Import puzzles</string>
     <string name="pgntool_import_opening">Used by developer</string>
+    <!-- Opening trainer / study import -->
+    <string name="opening_library_play_white">Play White</string>
+    <string name="opening_library_play_black">Play Black</string>
+    <string name="opening_trainer_status_initial">Select a move to start training.</string>
+    <string name="opening_trainer_status_turn">Side to move: %1$s</string>
+    <string name="opening_trainer_hint">Hint</string>
+    <string name="opening_trainer_undo">Undo</string>
+    <string name="opening_trainer_restart">Restart</string>
+    <string name="opening_trainer_exit">Exit</string>
+    <string name="opening_trainer_no_hint">No further moves in this line.</string>
+    <string name="opening_trainer_hint_prefix">Valid moves: %1$s</string>
+    <string name="opening_trainer_wrong_move">This move is not part of the opening lines. Please try another move.</string>
+    <string name="opening_trainer_stats_line">Coverage W: %1$s | B: %2$s\nAccuracy W: %3$s | B: %4$s</string>
+    <string name="opening_trainer_stats_pending_line">Coverage+pending W: %1$s | B: %2$s\nLine ply: %3$d | Completed: %4$d</string>
+
+    <string name="opening_library_upload_to_lichess">Upload to Lichess</string>
+    <string name="opening_library_uploading">Uploading to Lichess…</string>
+    <string name="opening_library_upload_done">Upload done</string>
+    <string name="opening_library_upload_error">Upload failed</string>
+    <string name="opening_library_choose_target_study">Choose target Lichess study</string>
+
+    <string name="opening_trainer_study_line_label">Chapter: %1$s (%2$d/%3$d)&#10;Line: %4$d/%5$d</string>
+    <string name="opening_trainer_auto_next">Auto Next</string>
+    <string name="opening_trainer_next">Next</string>
+    <string name="opening_trainer_shuffle">Shuffle</string>
 
     <string name="practice_set_reset">Practice set has been reset</string>
 
@@ -416,7 +441,6 @@
     <string name="lichess_create_challenge_color_random">Random</string>
     <string name="lichess_create_challenge_rated">Rated</string>
 
-
     <string name="lichess_challenge_by_cancelled">Challenge by %1$s cancelled"</string>
     <string name="lichess_challenge_by_declined">Challenge declined by %1$s</string>
     <string name="lichess_my_challenge_closed">Challenge closed</string>
@@ -427,6 +451,24 @@
 
     <string name="lichess_opponent_offers_draw">Your opponent offers a draw. Tap Draw to accept</string>
     <string name="lichess_game_winner">Winner: %1$s</string>
+    <!-- Opening import / studies -->
+    <string name="opening_import_loading">Loading studies…</string>
+    <string name="opening_import_loaded">Studies loaded</string>
+    <string name="opening_import_error">Could not load studies. Please check your Lichess login and connection.</string>
+    <string name="opening_import_importing">Importing study…</string>
+    <string name="opening_import_done">Study imported.</string>
+    <string name="opening_import_confirm_title">Import opening study</string>
+    <string name="opening_import_confirm_message">Import study \"%1$s\" into the app?</string>
+    <string name="opening_import_from_url">Import from URL</string>
+    <string name="opening_import_url_title">Import Lichess study by URL</string>
+    <string name="opening_import_url_hint">Paste Lichess study URL</string>
+    <string name="opening_import_name_hint">Optional name (shown in list)</string>
+    <string name="opening_import_url_invalid">Invalid study URL. Example: https://lichess.org/study/StudyId</string>
+    <string name="opening_library_copy">Copy PGN</string>
+    <string name="opening_import_log_title">Progress log</string>
+    <string name="opening_import_log_initial">Waiting…</string>
+    <string name="opening_import_log_copy">Copy</string>
+    <string name="opening_import_log_clear">Clear</string>
     <string name="lichess_game_state_created">Game created</string>
     <string name="lichess_game_state_started">Game started</string>
     <string name="lichess_game_state_aborted">Game aborted</string>
@@ -437,6 +479,7 @@
     <string name="lichess_lobby_connected">You are connected to Lichess</string>
     <string name="lichess_lobby_button_challenge">Challenge</string>
     <string name="lichess_lobby_button_seek">Seek</string>
+    <string name="lichess_lobby_button_opening">Opening</string>
     <string name="lichess_lobby_button_logout">Logout</string>
     <string name="lichess_lobby_ongoing_games">Ongoing games</string>
 

@@ -64,6 +64,13 @@
                 android:layout_marginTop="8dip"
                 style="@style/ChessButton"/>
 
+            <Button
+                android:text="@string/lichess_lobby_button_opening"
+                android:id="@+id/ButtonOpening"
+                android:layout_width="wrap_content"
+                android:layout_marginTop="8dip"
+                style="@style/ChessButton"/>
+
 
         </LinearLayout>
 

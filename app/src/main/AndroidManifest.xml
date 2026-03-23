@@ -219,6 +219,22 @@
                 <data android:mimeType="application/x-chess-pgn" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name="jwtc.android.chess.opening.OpeningImportActivity"
+            android:label="@string/app_name"
+            android:configChanges="orientation"
+            android:exported="true" />
+        <activity
+            android:name="jwtc.android.chess.opening.OpeningTrainerActivity"
+            android:label="@string/app_name_play"
+            android:configChanges="orientation"
+            android:exported="true" />
+
+        <provider
+            android:name="jwtc.android.chess.opening.OpeningStudyProvider"
+            android:authorities="jwtc.android.chess.opening.OpeningStudyProvider"
+            android:exported="false" />
         <activity
             android:name=".lichess.LichessActivity"
             android:launchMode="singleTask"

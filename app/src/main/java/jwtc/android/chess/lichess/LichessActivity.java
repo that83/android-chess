@@ -52,7 +52,7 @@ public class LichessActivity extends ChessBoardActivity implements LichessApi.Li
     private TextView textViewLastMove, textViewStatus, textViewOfferDraw, textViewWhitePieces, textViewBlackPieces;
     private TextView textViewLobbyStatus;
     private TextView textViewHandle;
-    private Button buttonDraw, buttonSeek, buttonChallenge;
+    private Button buttonDraw, buttonSeek, buttonChallenge, buttonOpening;
     private ListView listViewGames;
     private SimpleAdapter adapterGames;
 
@@ -115,6 +115,17 @@ public class LichessActivity extends ChessBoardActivity implements LichessApi.Li
             @Override
             public void onClick(View v) {
                 openChallengeDialog(ChallengeDialog.REQUEST_SEEK);
+            }
+        });
+
+        buttonOpening = findViewById(R.id.ButtonOpening);
+        buttonOpening.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                // Open the simple import UI to list and import studies
+                Intent intent = new Intent(LichessActivity.this, jwtc.android.chess.opening.OpeningImportActivity.class);
+                intent.putExtra("lichess_username", lichessApi != null ? lichessApi.getUser() : null);
+                startActivity(intent);
             }
         });
 

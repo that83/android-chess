@@ -31,7 +31,8 @@ public class Auth {
     private static final String TAG = "lichess.Auth";
     private static final String LICHESS_HOST = "https://lichess.org";
     private static final String CLIENT_ID = "lichess-api-demo"; // "lichess-android-client";
-    private static final String[] SCOPES = new String[]{"board:play"};
+    // Request both board play and study read/write so we can import/export studies.
+    private static final String[] SCOPES = new String[]{"board:play", "study:read", "study:write"};
     private static final String PREFS_NAME = "AuthPrefs";
     private static final String KEY_ACCESS_TOKEN = "access_token";
     private static final String KEY_REFRESH_TOKEN = "refresh_token";
@@ -46,7 +47,7 @@ public class Auth {
             .readTimeout(0, TimeUnit.MILLISECONDS) // infinite timeout
             .build();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
-    NdJsonStream.Stream eventStream, gameStream, challengeStream, seekStream;
+    NdJsonStream.Stream eventStream, gameStream, challengeStream, seekStream, studyStream;
     private String accessToken, refreshToken;
     Long expiresAt;
 
@@ -128,6 +129,179 @@ public class Auth {
 
     public void playing(OAuth2AuthCodePKCE.Callback<JsonObject, JsonObject> callback) {
         get("/api/account/playing?nd=5", callback);
+    }
+
+    /**
+     * List studies of the currently authenticated user.
+     * Lichess returns NDJSON; each line is one study JSON object.
+     */
+    public void listStudies(OAuth2AuthCodePKCE.Callback<JsonObject, JsonObject> callback) {
+        // The /api/study/by/me endpoint returns studies for the current user.
+        // We rely on SCOPES including study:read so private studies are also visible.
+        get("/api/study/by/me", callback);
+    }
+
+    public void listStudiesByUser(String username, OAuth2AuthCodePKCE.Callback<JsonObject, JsonObject> callback) {
+        // Use streaming NDJSON for studies, similar to event/game streams.
+        if (studyStream != null) {
+            studyStream.close();
+        }
+        studyStream = openStream("/api/study/by/" + username, null, new NdJsonStream.Handler() {
+            @Override
+            public void onResponse(JsonObject jsonObject) {
+                mainHandler.post(() -> callback.onSuccess(jsonObject));
+            }
+
+            @Override
+            public void onClose(boolean success) {
+                mainHandler.post(() -> {
+                    studyStream = null;
+                    if (!success) {
+                        JsonObject error = new JsonObject();
+                        error.addProperty("error", "study_stream_closed");
+                        callback.onError(error);
+                    }
+                });
+            }
+        });
+    }
+
+    /**
+     * Export all chapters of a study as a single PGN blob.
+     * We use a raw string callback instead of JSON because this endpoint returns PGN text.
+     */
+    public void exportStudyPgn(String studyId, OAuth2AuthCodePKCE.Callback<String, JsonObject> callback) {
+        Log.d(TAG, "exportStudyPgn " + studyId);
+        Request.Builder reqBuilder = new Request.Builder()
+                // Use the API endpoint (Bearer token + study:read). The non-API /study/{id}.pgn endpoint
+                // is primarily cookie-based and returns HTML when not authenticated.
+                .url(LICHESS_HOST + "/api/study/" + studyId + ".pgn?clocks=true&comments=true&variations=true")
+                .addHeader("Authorization", "Bearer " + accessToken)
+                .addHeader("Accept", "application/x-chess-pgn")
+                .get();
+
+        httpClient.newCall(reqBuilder.build()).enqueue(new Callback() {
+            @Override
+            public void onFailure(Call call, IOException e) {
+                Log.d(TAG, "exportStudyPgn onFailure " + e);
+                mainHandler.post(() -> {
+                    // Represent network error as a JSON error payload for the callback
+                    JsonObject error = new JsonObject();
+                    error.addProperty("error", e.getMessage() != null ? e.getMessage() : "network_error");
+                    callback.onError(error);
+                });
+            }
+
+            @Override
+            public void onResponse(Call call, Response response) throws IOException {
+                if (!response.isSuccessful()) {
+                    String responseBody = response.body() != null ? response.body().string() : "";
+                    Log.d(TAG, "exportStudyPgn HTTP " + response.code() + " => " + responseBody);
+                    JsonObject error = new JsonObject();
+                    error.addProperty("error", "http_" + response.code());
+                    error.addProperty("body", responseBody);
+                    JsonObject finalError = error;
+                    mainHandler.post(() -> callback.onError(finalError));
+                    return;
+                }
+
+                String pgn = response.body() != null ? response.body().string() : "";
+                mainHandler.post(() -> callback.onSuccess(pgn));
+            }
+        });
+    }
+
+    /**
+     * Import a PGN blob into a study (and implicitly create the study if it does not exist).
+     * Endpoint:
+     * POST /api/study/{studyId}/import-pgn
+     *
+     * Requires OAuth2 with `study:write` scope.
+     */
+    public void importStudyPgn(
+            String studyId,
+            String pgn,
+            String chapterName,
+            boolean initial,
+            OAuth2AuthCodePKCE.Callback<JsonObject, JsonObject> callback
+    ) {
+        if (accessToken == null || accessToken.isEmpty()) {
+            JsonObject error = new JsonObject();
+            error.addProperty("error", "no_access_token");
+            mainHandler.post(() -> callback.onError(error));
+            return;
+        }
+
+        // Lichess expects application/x-www-form-urlencoded for most study endpoints.
+        okhttp3.FormBody.Builder form = new okhttp3.FormBody.Builder()
+                .add("pgn", pgn != null ? pgn : "")
+                .add("orientation", "auto")
+                .add("mode", "normal")
+                .add("initial", initial ? "true" : "false");
+        if (chapterName != null && !chapterName.trim().isEmpty()) {
+            form.add("name", chapterName.trim());
+        }
+
+        Request.Builder reqBuilder = new Request.Builder()
+                .url(LICHESS_HOST + "/api/study/" + studyId + "/import-pgn")
+                .addHeader("Authorization", "Bearer " + accessToken)
+                .addHeader("Accept", "application/json")
+                .post(form.build());
+
+        httpClient.newCall(reqBuilder.build()).enqueue(new Callback() {
+            @Override
+            public void onFailure(Call call, IOException e) {
+                Log.d(TAG, "importStudyPgn onFailure " + e);
+                mainHandler.post(() -> {
+                    JsonObject error = new JsonObject();
+                    error.addProperty("error", e.getMessage() != null ? e.getMessage() : "network_error");
+                    callback.onError(error);
+                });
+            }
+
+            @Override
+            public void onResponse(Call call, Response response) throws IOException {
+                String responseBody = response.body() != null ? response.body().string() : "";
+                if (!response.isSuccessful()) {
+                    Log.d(TAG, "importStudyPgn HTTP " + response.code() + " => " + responseBody);
+                    JsonObject error = new JsonObject();
+                    error.addProperty("error", "http_" + response.code());
+                    error.addProperty("body", responseBody);
+                    JsonObject finalError = error;
+                    mainHandler.post(() -> callback.onError(finalError));
+                    return;
+                }
+
+                try {
+                    // Response is typically JSON; but keep it flexible in case it's an array.
+                    JsonObject result;
+                    com.google.gson.JsonElement parsed = new JsonParser().parse(responseBody);
+                    if (parsed != null && parsed.isJsonObject()) {
+                        result = parsed.getAsJsonObject();
+                        // Some Lichess endpoints may return an error object with HTTP 200.
+                        if (result.has("error")
+                                && !result.get("error").isJsonNull()
+                                && !result.get("error").getAsString().trim().isEmpty()) {
+                            JsonObject error = new JsonObject();
+                            error.addProperty("error", result.get("error").getAsString());
+                            error.addProperty("body", responseBody);
+                            mainHandler.post(() -> callback.onError(error));
+                            return;
+                        }
+                    } else {
+                        result = new JsonObject();
+                        result.add("data", parsed);
+                    }
+                    mainHandler.post(() -> callback.onSuccess(result));
+                } catch (Exception parseEx) {
+                    JsonObject error = new JsonObject();
+                    error.addProperty("error", "json_parse_error");
+                    error.addProperty("body", responseBody);
+                    error.addProperty("details", parseEx.getMessage() != null ? parseEx.getMessage() : "");
+                    mainHandler.post(() -> callback.onError(error));
+                }
+            }
+        });
     }
 
     public void challenge(Map<String, Object> payload, AuthResponseHandler responseHandler) {
@@ -334,6 +508,9 @@ public class Auth {
         if (eventStream != null) {
             eventStream.close();
         }
+        if (studyStream != null) {
+            studyStream.close();
+        }
     }
 
     public void post(String path, Map<String, Object> jsonBody, OAuth2AuthCodePKCE.Callback<JsonObject, JsonObject> callback) {
@@ -417,27 +594,24 @@ public class Auth {
             public void onFailure(Call call, IOException e) {
                 Log.d(TAG, "onFailure " + e);
                 mainHandler.post(() -> {
-                    //callback.onError(e);
-                    // @TODO general error
+                    JsonObject error = new JsonObject();
+                    error.addProperty("error", e.getMessage() != null ? e.getMessage() : "network_error");
+                    callback.onError(error);
                 });
             }
 
             @Override
             public void onResponse(Call call, Response response) throws IOException {
                 if (!response.isSuccessful()) {
-                    String responseBody = response.body().string();
-                    try {
-                        JsonObject jsonObject = JsonParser.parseString(responseBody).getAsJsonObject();
-                        mainHandler.post(() -> {
-                            callback.onError(jsonObject);
-                        });
-                    } catch (Exception ex) {
-                        Log.d(TAG, "could not parse " + response.code() + " => " + responseBody);
-                    }
+                    String responseBody = response.body() != null ? response.body().string() : "";
+                    JsonObject error = new JsonObject();
+                    error.addProperty("error", "http_" + response.code());
+                    error.addProperty("body", responseBody);
+                    mainHandler.post(() -> callback.onError(error));
                     return;
                 }
                 Log.d(TAG, "wating for response...");
-                String responseBody = response.body().string();
+                String responseBody = response.body() != null ? response.body().string() : "";
                 Log.d(TAG, "responseBody " + responseBody);
                 try {
                     String[] lines = responseBody.split("\r?\n");
@@ -453,10 +627,11 @@ public class Auth {
                     }
                 } catch (Exception ex) {
                     Log.d(TAG, "Caught " + ex);
-                    mainHandler.post(() -> {
-                        // callback.onError(ex);
-                        // @TODO another general error
-                    });
+                    JsonObject error = new JsonObject();
+                    error.addProperty("error", "parse_error");
+                    error.addProperty("message", ex.getMessage() != null ? ex.getMessage() : "parse_error");
+                    error.addProperty("body", responseBody);
+                    mainHandler.post(() -> callback.onError(error));
                 }
             }
         });

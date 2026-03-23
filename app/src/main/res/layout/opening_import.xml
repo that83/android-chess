@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <TextView
+        android:id="@+id/TextViewOpeningStatus"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/opening_import_loading"
+        style="@style/MyPaneTextStyle2Lines" />
+
+    <ProgressBar
+        android:id="@+id/ProgressBarOpening"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:indeterminate="true"
+        android:layout_marginTop="8dp" />
+
+    <Button
+        android:id="@+id/ButtonImportStudyUrl"
+        style="@style/ChessButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="@string/opening_import_from_url" />
+
+    <ListView
+        android:id="@+id/ListViewStudies"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginTop="8dp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:id="@+id/TextViewOpeningLogTitle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/opening_import_log_title"
+            style="@style/MyHeaderTextStyle" />
+
+        <Button
+            android:id="@+id/ButtonOpeningLogCopy"
+            style="@style/ChessButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/opening_import_log_copy" />
+
+        <Button
+            android:id="@+id/ButtonOpeningLogClear"
+            style="@style/ChessButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginLeft="6dp"
+            android:text="@string/opening_import_log_clear" />
+    </LinearLayout>
+
+    <ScrollView
+        android:id="@+id/ScrollViewOpeningLog"
+        android:layout_width="match_parent"
+        android:layout_height="120dp"
+        android:layout_marginTop="4dp">
+
+        <TextView
+            android:id="@+id/TextViewOpeningLog"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textIsSelectable="true"
+            android:textSize="12sp"
+            android:typeface="monospace"
+            android:text="@string/opening_import_log_initial" />
+    </ScrollView>
+
+</LinearLayout>
+

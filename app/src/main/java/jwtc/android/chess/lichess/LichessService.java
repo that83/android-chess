@@ -52,7 +52,7 @@ public class LichessService extends Service {
     }
 
     public class LocalBinder extends Binder {
-        LichessService getService() {
+        public LichessService getService() {
             Log.d(TAG, "LocalBinder.getService");
             return LichessService.this;
         }

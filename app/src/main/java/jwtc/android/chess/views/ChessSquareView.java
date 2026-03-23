@@ -18,6 +18,8 @@ public class ChessSquareView extends View {
     private int pos;
     private boolean selected;
     private boolean highlighted;
+    private boolean hintHighlighted;
+    private boolean wrongHighlighted;
     private boolean focussed;
     private boolean move;
     private boolean belowPiece;
@@ -34,6 +36,8 @@ public class ChessSquareView extends View {
         this.pos = pos;
         selected = false;
         highlighted = false;
+        hintHighlighted = false;
+        wrongHighlighted = false;
         focussed = false;
         move = false;
         belowPiece = false;
@@ -70,6 +74,20 @@ public class ChessSquareView extends View {
 
     public boolean getHighlighted() {
         return this.highlighted;
+    }
+
+    public void setHintHighlighted(boolean hintHighlighted) {
+        if (this.hintHighlighted != hintHighlighted) {
+            this.hintHighlighted = hintHighlighted;
+            this.invalidate();
+        }
+    }
+
+    public void setWrongHighlighted(boolean wrongHighlighted) {
+        if (this.wrongHighlighted != wrongHighlighted) {
+            this.wrongHighlighted = wrongHighlighted;
+            this.invalidate();
+        }
     }
 
     public void setFocussed(boolean focussed) {
@@ -155,6 +173,24 @@ public class ChessSquareView extends View {
             highlightPaint.setColor(ColorSchemes.getHightlightColor());
             canvas.drawRect(new Rect(0, 0, getWidth(), getHeight()), highlightPaint);
 
+        }
+
+        if (hintHighlighted) {
+            int strokeWidth = getWidth() / 10;
+            highlightPaint.setStyle(Paint.Style.STROKE);
+            highlightPaint.setStrokeWidth(strokeWidth);
+            // vivid green
+            highlightPaint.setColor(0xFF00C853);
+            canvas.drawRect(new Rect(strokeWidth / 2, strokeWidth / 2, getWidth() - strokeWidth / 2, getHeight() - strokeWidth / 2), highlightPaint);
+        }
+
+        if (wrongHighlighted) {
+            int strokeWidth = getWidth() / 12;
+            highlightPaint.setStyle(Paint.Style.STROKE);
+            highlightPaint.setStrokeWidth(strokeWidth);
+            highlightPaint.setColor(0xFFE53935); // red
+            canvas.drawLine(strokeWidth, strokeWidth, getWidth() - strokeWidth, getHeight() - strokeWidth, highlightPaint);
+            canvas.drawLine(getWidth() - strokeWidth, strokeWidth, strokeWidth, getHeight() - strokeWidth, highlightPaint);
         }
 
         if (move) {

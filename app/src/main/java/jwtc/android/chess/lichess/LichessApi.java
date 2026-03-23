@@ -113,6 +113,10 @@ public class LichessApi extends GameApi {
         });
     }
 
+    public String getUser() {
+        return user;
+    }
+
     public void event() {
         this.auth.event(new Auth.AuthResponseHandler() {
             @Override
@@ -213,6 +217,74 @@ public class LichessApi extends GameApi {
                 if (apiListener != null) {
                     apiListener.onMySeekCancelled();
                 }
+            }
+        });
+    }
+
+    /**
+     * List studies for the currently authenticated user.
+     */
+    public void listStudies(OAuth2AuthCodePKCE.Callback<JsonObject, JsonObject> callback) {
+        if (auth == null) {
+            JsonObject error = new JsonObject();
+            error.addProperty("error", "no_auth");
+            callback.onError(error);
+            return;
+        }
+        // Prefer by-username endpoint when we know it; otherwise fall back to /by/me.
+        if (user != null && !user.isEmpty()) {
+            auth.listStudiesByUser(user, callback);
+        } else {
+            auth.listStudies(callback);
+        }
+    }
+
+    /**
+     * Explicitly list studies for a given username.
+     */
+    public void listStudiesForUser(String username, OAuth2AuthCodePKCE.Callback<JsonObject, JsonObject> callback) {
+        if (auth == null) {
+            JsonObject error = new JsonObject();
+            error.addProperty("error", "no_auth");
+            callback.onError(error);
+            return;
+        }
+        auth.listStudiesByUser(username, callback);
+    }
+
+    /**
+     * Export all chapters of a study as PGN text.
+     */
+    public void exportStudyPgn(String studyId, OAuth2AuthCodePKCE.Callback<String, JsonObject> callback) {
+        if (auth == null) {
+            JsonObject error = new JsonObject();
+            error.addProperty("error", "no_auth");
+            callback.onError(error);
+            return;
+        }
+        auth.exportStudyPgn(studyId, callback);
+    }
+
+    /**
+     * Import a PGN blob into a study on the authenticated user's account.
+     * The caller should pass a target studyId (we recommend generating a random new one).
+     */
+    public void importStudyPgn(String targetStudyId, String pgn, String chapterName, OAuth2AuthCodePKCE.Callback<JsonObject, JsonObject> callback) {
+        if (auth == null) {
+            JsonObject error = new JsonObject();
+            error.addProperty("error", "no_auth");
+            callback.onError(error);
+            return;
+        }
+        auth.importStudyPgn(targetStudyId, pgn, chapterName, /*initial=*/true, new OAuth2AuthCodePKCE.Callback<JsonObject, JsonObject>() {
+            @Override
+            public void onSuccess(JsonObject result) {
+                callback.onSuccess(result);
+            }
+
+            @Override
+            public void onError(JsonObject e) {
+                callback.onError(e);
             }
         });
     }
