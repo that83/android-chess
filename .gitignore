@@ -202,3 +202,10 @@ sftp-config.json
 tmtags
 
 .vscode/
+
+# Chessable export helper (local session + captures)
+tools/chessable_export/auth.json
+tools/chessable_export/out/
+tools/chessable_export/out_series*/
+tools/chessable_export/out_smoke/
+tools/chessable_export/.venv/

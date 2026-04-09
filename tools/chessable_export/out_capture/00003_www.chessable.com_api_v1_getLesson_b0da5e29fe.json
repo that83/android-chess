@@ -1,0 +1,142 @@
+{
+  "lesson": {
+    "moves": [
+      {
+        "mid": 0,
+        "fullMove0Based": 0,
+        "readyW": false,
+        "readyB": false,
+        "isKey": true,
+        "variant": null,
+        "result": "1/2-1/2",
+        "default_study": "key",
+        "default_review": "default",
+        "move_white": "Kf1",
+        "move_black": null,
+        "move_fen": "8/1b6/8/8/8/5k1p/7P/6K1 w KQkq - 0 1",
+        "useSoftFail": true,
+        "informational": false,
+        "reference": false,
+        "quizAfterLearn": true,
+        "alternative": 0,
+        "last_black_move": "",
+        "level": 6,
+        "level_b": null,
+        "level_origin": 6,
+        "level_origin_b": 0,
+        "opening_name": "Position I.1",
+        "is_fav_before_white": 0,
+        "is_fav_white": 0,
+        "is_fav_black": 0,
+        "opening_in_books": "",
+        "comment_white": "{\"before\":\"8\\/1b6\\/8\\/8\\/8\\/5k1p\\/7P\\/6K1 w KQkq - 0 1\",\"after\":\"8\\/1b6\\/8\\/8\\/8\\/5k1p\\/7P\\/5K2 b kq - 1 1\",\"data\":[{\"key\":\"V\",\"state\":\"\",\"val\":[{\"key\":\"C\",\"state\":\"\",\"val\":\"Draw, but White should avoid\"},{\"key\":\"S\",\"state\":\"\",\"val\":\"1.Kh1??\"},{\"key\":\"S\",\"state\":\"\",\"val\":\"Kf2#\"},{\"key\":\"C\",\"state\":\"\",\"val\":\"We could add blocked pawns for White on the h2-b8 diagonal, and for Black on the h3-c8 diagonal, and the result would not change.\"}],\"line\":false}]}",
+        "comment_black": "",
+        "comment_before_white": "",
+        "comment_before_black": "",
+        "annotation_white": 0,
+        "annotation_black": 0,
+        "drawing_white": [
+          {
+            "object": "arrow",
+            "start": "h3",
+            "end": "d7",
+            "color": "r",
+            "move": "1w",
+            "index": "arrow_h3d7"
+          },
+          {
+            "object": "arrow",
+            "start": "d7",
+            "end": "h3",
+            "color": "r",
+            "move": "1w",
+            "index": "arrow_d7h3"
+          },
+          {
+            "object": "arrow",
+            "start": "h2",
+            "end": "d6",
+            "color": "b",
+            "move": "1w",
+            "index": "arrow_h2d6"
+          },
+          {
+            "object": "arrow",
+            "start": "d6",
+            "end": "h2",
+            "color": "b",
+            "move": "1w",
+            "index": "arrow_d6h2"
+          }
+        ],
+        "drawing_black": [],
+        "prev_comment_white": null,
+        "prev_comment_black": null,
+        "prev_comment_before_white": null,
+        "prev_comment_before_black": null,
+        "prev_drawing_black": null,
+        "drawing_initial": null,
+        "book_name": "100 Endgames You Must Know",
+        "book_id": 5193,
+        "img_url": "/img/books/51931668510808.png",
+        "book_type": "endgame",
+        "is_tactic": 0,
+        "default_time": 300,
+        "default_time_off": null,
+        "alt_white": null,
+        "alt_black": null,
+        "chapterTitle": "Introduction",
+        "studyCol": "white",
+        "learnReps": 3,
+        "limitedByDepth": false,
+        "bid": 5193,
+        "oid": 2657521
+      }
+    ],
+    "books": {
+      "5193": {
+        "name": "100 Endgames You Must Know",
+        "bid": 5193,
+        "lastPhotoUpdate": 1668510808,
+        "type": "endgame",
+        "isTutorial": false
+      }
+    },
+    "authors": {
+      "2657521": {
+        "name": "Jesús de la Villa",
+        "url": "/author/JesusdelaVilla",
+        "chess_title": "GM"
+      }
+    },
+    "isRandom": false,
+    "limitedByDepth": null,
+    "studyCol": "white",
+    "nColor": 1,
+    "nWhite": 1,
+    "nBlack": 0,
+    "started": "2026-04-08 10:47:44",
+    "chapter": {
+      "title": "Introduction",
+      "size": 25,
+      "progress": 25,
+      "bid": 5193,
+      "lid": 15,
+      "video": {
+        "providerId": "mx9lrtyyuh",
+        "providerName": "wistia",
+        "position": 9,
+        "id": 16774
+      }
+    },
+    "remaining": null,
+    "variationCommentsAmount": 6,
+    "priority": {
+      "2657521": false
+    },
+    "helpMode": {
+      "2657521": "author"
+    }
+  },
+  "hash": "119248"
+}
