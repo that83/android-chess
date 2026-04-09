@@ -3,6 +3,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:fillViewport="true"
+    android:clipToPadding="false"
     android:scrollbars="vertical">
 
     <LinearLayout
@@ -15,7 +16,7 @@
         <RelativeLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="-7dp"
+            android:layout_marginTop="0dp"
             android:layout_marginBottom="1dip"
             android:layout_marginLeft="16dp">
 
@@ -44,6 +45,19 @@
                 android:layout_alignStart="@id/includeboard"
                 android:layout_alignEnd="@id/includeboard"
                 android:layout_marginTop="2dp" />
+
+            <TextView
+                android:id="@+id/TextViewOpeningBookComment"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_below="@id/OpeningLineProgress"
+                android:layout_alignStart="@id/includeboard"
+                android:layout_alignEnd="@id/includeboard"
+                android:layout_marginTop="4dp"
+                android:maxHeight="168dp"
+                android:scrollbars="vertical"
+                android:textAppearance="?android:attr/textAppearanceSmall"
+                android:visibility="gone" />
 
             <TextView
                 android:id="@+id/TextViewLineDoneOverlay"

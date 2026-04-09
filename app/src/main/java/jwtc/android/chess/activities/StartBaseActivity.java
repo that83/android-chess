@@ -21,6 +21,7 @@ import androidx.appcompat.app.ActionBar;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.app.AppCompatDelegate;
 import jwtc.android.chess.R;
+import jwtc.android.chess.cynus.CynusActivity;
 import jwtc.android.chess.lichess.LichessActivity;
 import jwtc.android.chess.helpers.ActivityHelper;
 import jwtc.android.chess.hotspotboard.HotspotBoardActivity;
@@ -106,6 +107,9 @@ public class StartBaseActivity  extends AppCompatActivity {
                         startActivity(i);
                     } else if (requestedItem.equals(getString(R.string.start_lichess))) {
                         i.setClass(StartBaseActivity.this, LichessActivity.class);
+                        startActivity(i);
+                    } else if (requestedItem.equals(getString(R.string.start_cynus))) {
+                        i.setClass(StartBaseActivity.this, CynusActivity.class);
                         startActivity(i);
                     } else {
                         Log.d(TAG, "Nothing to start");

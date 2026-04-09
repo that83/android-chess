@@ -102,6 +102,17 @@ public class LichessActivity extends ChessBoardActivity implements LichessApi.Li
                 lichessApi.login(LichessActivity.this);
             }
         });
+        Button buttonOpeningOffline = findViewById(R.id.ButtonOpeningOffline);
+        if (buttonOpeningOffline != null) {
+            buttonOpeningOffline.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    Intent intent = new Intent(LichessActivity.this, jwtc.android.chess.opening.OpeningImportActivity.class);
+                    intent.putExtra("lichess_username", lichessApi != null ? lichessApi.getUser() : null);
+                    startActivity(intent);
+                }
+            });
+        }
 
         buttonChallenge = findViewById(R.id.ButtonChallenge);
         buttonChallenge.setOnClickListener(new View.OnClickListener() {

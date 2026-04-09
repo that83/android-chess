@@ -18,6 +18,33 @@
     <string name="start_ics">Play on Freechess</string>
     <string name="start_boardpreferences">Chess board settings</string>
     <string name="start_lichess">Play on Lichess (experimental)</string>
+    <string name="start_cynus">Cynus board (BLE)</string>
+
+    <string name="cynus_intro">CYNUS physical board: scan for a device whose name starts with CYNUS-, tap to connect. The app uses the built-in chess engine (not Stockfish): when the board sends lines starting with fen: or get move, a reply is sent as move &lt;uci&gt;. Uses the same engine as Play mode; avoid running other chess screens at the same time.</string>
+    <string name="cynus_scan">Scan</string>
+    <string name="cynus_disconnect">Disconnect</string>
+    <string name="cynus_devices">Devices</string>
+    <string name="cynus_log">Log</string>
+    <string name="cynus_perm_ok">Bluetooth permission granted.</string>
+    <string name="cynus_perm_denied">Bluetooth permission denied.</string>
+    <string name="cynus_bt_disabled">Enable Bluetooth first.</string>
+    <string name="cynus_no_le">This device does not support Bluetooth Low Energy.</string>
+    <string name="cynus_scanning">Scanning (20 s for CYNUS-*)…</string>
+    <string name="cynus_connecting">Connecting… %1$s</string>
+    <string name="cynus_connected">GATT connected, discovering services…</string>
+    <string name="cynus_gatt_disconnect">GATT disconnected.</string>
+    <string name="cynus_char_not_found">Characteristic FFF1 not found on this device.</string>
+    <string name="cynus_no_ccc">No CCC descriptor; notifications may still work.</string>
+    <string name="cynus_ready">Notifications enabled. Waiting for board…</string>
+    <string name="cynus_disconnected">Disconnected.</string>
+    <string name="cynus_jni_ended">Position is terminal (mate/draw); no search.</string>
+    <string name="cynus_no_best">Engine returned no move.</string>
+    <string name="cynus_write_no_conn">Cannot write: not connected.</string>
+    <string name="cynus_write_fail">writeCharacteristic returned false.</string>
+    <string name="cynus_flip_board">Bot play WHITE</string>
+    <string name="cynus_app_engine">Use app\'s engine</string>
+    <string name="cynus_export_pgn">Export PGN</string>
+    <string name="cynus_pgn_copied">PGN copied to clipboard.</string>
 
     <string name="globalpreferences">Global settings</string>
     <string name="playpreferences">Play settings</string>
@@ -235,6 +262,7 @@
     <string name="opening_trainer_no_hint">No further moves in this line.</string>
     <string name="opening_trainer_hint_prefix">Valid moves: %1$s</string>
     <string name="opening_trainer_wrong_move">This move is not part of the opening lines. Please try another move.</string>
+    <string name="opening_trainer_book_comment_label">Ghi chú sách:</string>
     <string name="opening_trainer_stats_line">Coverage W: %1$s | B: %2$s\nAccuracy W: %3$s | B: %4$s</string>
     <string name="opening_trainer_stats_pending_line">Coverage+pending W: %1$s | B: %2$s\nLine ply: %3$d | Completed: %4$d</string>
 
@@ -455,6 +483,7 @@
     <string name="opening_import_loading">Loading studies…</string>
     <string name="opening_import_loaded">Studies loaded</string>
     <string name="opening_import_error">Could not load studies. Please check your Lichess login and connection.</string>
+    <string name="opening_import_error_private_study">Cannot import: this study is private on Lichess. Make it Public or Unlisted in study settings, or log in to the account that owns it, then try again.</string>
     <string name="opening_import_importing">Importing study…</string>
     <string name="opening_import_done">Study imported.</string>
     <string name="opening_import_confirm_title">Import opening study</string>

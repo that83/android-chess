@@ -10,6 +10,7 @@ import android.os.Looper;
 import android.util.Log;
 import android.view.View;
 import android.view.MotionEvent;
+import android.text.method.ScrollingMovementMethod;
 import android.widget.ScrollView;
 import android.widget.ImageButton;
 import android.widget.ProgressBar;
@@ -53,6 +54,8 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
 
     private TextView textStatus;
     private ScrollView statusScrollView;
+    /** Ghi chú PGN dưới thanh tiến trình line. */
+    private TextView textViewBookComment;
     private TextView lineDoneOverlay;
     private Button buttonHint;
     private Button buttonUndo;
@@ -83,6 +86,10 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
     private OpeningMoveTree.Node currentNode;
     private String playAs = "white";
     private String lastDebugLine = "";
+    /** Brace comment from PGN for the half-move that led to the current board position. */
+    private String activeBookComment = "";
+    /** When non-null, shown as the first line of the status log (e.g. wrong-move banner). */
+    private String statusExtraFirstLine = null;
 
     private EngineApi engine;
     private boolean engineEnabled = false;
@@ -102,6 +109,12 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
 
     private boolean wrongMovePendingUndo = false;
     private int wrongMoveBoardNum = -1;
+
+    // Eval baseline (relative display):
+    // Some positions have a constant offset in native evaluation. We subtract the baseline
+    // captured at the start of each opened line so user-facing eval/bar becomes ~0 at start.
+    private float evalBaselineCpWhite = 0f;
+    private boolean evalBaselineInitialized = false;
 
     // Study line selection (root-to-leaf lines, where each node follows the first child after the root choice).
     private int currentStudyLineIndex = 0; // 0-based
@@ -234,6 +247,18 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
             textViewBlackPieces = findViewById(R.id.TextViewBlackPieces);
             evalBarView = findViewById(R.id.EvalBar);
             openingLineProgressView = findViewById(R.id.OpeningLineProgress);
+            textViewBookComment = findViewById(R.id.TextViewOpeningBookComment);
+            if (textViewBookComment != null) {
+                textViewBookComment.setMovementMethod(new ScrollingMovementMethod());
+                textViewBookComment.setOnTouchListener((v, event) -> {
+                    v.getParent().requestDisallowInterceptTouchEvent(true);
+                    if (event.getActionMasked() == MotionEvent.ACTION_UP
+                            || event.getActionMasked() == MotionEvent.ACTION_CANCEL) {
+                        v.getParent().requestDisallowInterceptTouchEvent(false);
+                    }
+                    return false;
+                });
+            }
             textViewStudyLine = findViewById(R.id.TextViewOpeningTrainerStudyLine);
             switchAutoNext = findViewById(R.id.SwitchAutoNext);
             buttonOpeningNextLine = findViewById(R.id.ButtonOpeningNextLine);
@@ -473,6 +498,8 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
         // Reset visible eval UI.
         lastEvalLine = "Engine eval: --";
         lastEvalCp = 0f;
+        evalBaselineCpWhite = 0f;
+        evalBaselineInitialized = false;
         if (evalBarView != null) {
             evalBarView.setEvalCp(0f);
         }
@@ -497,10 +524,23 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
         if (progressBarBot != null) progressBarBot.setVisibility(View.GONE);
         updateBotButtonUi();
         chessBoardView.setRotated("black".equals(playAs));
+        activeBookComment = "";
+        statusExtraFirstLine = null;
         updateStatus();
         rebuildBoard();
         playAutoOpeningMovesUntilUsersTurn();
         maybePlayBotIfNeeded(/*forced=*/false);
+    }
+
+    private void recalibrateEvalBaselineIfNeeded() {
+        if (evalBaselineInitialized) return;
+        JNI jni = JNI.getInstance();
+        int turn = jni.getTurn();
+        int boardValue = jni.getBoardValue();
+        float cpTurn = boardValue / 100.0f;
+        float cpWhite = (turn == BoardConstants.WHITE) ? cpTurn : -cpTurn;
+        evalBaselineCpWhite = cpWhite;
+        evalBaselineInitialized = true;
     }
 
     /** Standard start, then optional chapter [FEN] / Lichess setup line. */
@@ -555,9 +595,35 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
         }
         rebuildBoard();
         updateOpeningLineProgress();
+        applyBookCommentAfterLineStateSync();
         updateStatus();
+        recalibrateEvalBaselineIfNeeded();
         if (!engineEnabled) {
             scheduleEngineEval();
+        }
+    }
+
+    /** Comment on the edge into the current position (uses line ply + selected line). */
+    private void applyBookCommentAfterLineStateSync() {
+        activeBookComment = "";
+        if (currentLineEdges == null || currentLineEdges.isEmpty() || linePly <= 0) {
+            return;
+        }
+        int idx = linePly - 1;
+        if (idx < 0 || idx >= currentLineEdges.size()) {
+            return;
+        }
+        OpeningMoveTree.Edge e = currentLineEdges.get(idx);
+        if (e != null && e.comment != null && !e.comment.trim().isEmpty()) {
+            activeBookComment = e.comment.trim();
+        }
+    }
+
+    private void applyBookCommentFromEdge(OpeningMoveTree.Edge edge) {
+        if (edge != null && edge.comment != null && !edge.comment.trim().isEmpty()) {
+            activeBookComment = edge.comment.trim();
+        } else {
+            activeBookComment = "";
         }
     }
 
@@ -641,6 +707,8 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
         // Reset visible eval UI.
         lastEvalLine = "Engine eval: --";
         lastEvalCp = 0f;
+        evalBaselineCpWhite = 0f;
+        evalBaselineInitialized = false;
         if (evalBarView != null) evalBarView.setEvalCp(0f);
         if (openingLineProgressView != null) openingLineProgressView.setProgress(0f);
 
@@ -690,6 +758,8 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
         if (progressBarBot != null) progressBarBot.setVisibility(View.GONE);
         updateBotButtonUi();
         chessBoardView.setRotated("black".equals(playAs));
+        activeBookComment = "";
+        statusExtraFirstLine = null;
 
         // Reset board + move history (FEN chapter start when present).
         applyChapterBoardStart();
@@ -736,6 +806,8 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
         // Reset visible eval UI.
         lastEvalLine = "Engine eval: --";
         lastEvalCp = 0f;
+        evalBaselineCpWhite = 0f;
+        evalBaselineInitialized = false;
         if (evalBarView != null) evalBarView.setEvalCp(0f);
         if (openingLineProgressView != null) openingLineProgressView.setProgress(0f);
 
@@ -915,6 +987,8 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
             wrongMovePendingUndo = false;
             wrongMoveBoardNum = -1;
             wrongPositions.clear();
+            activeBookComment = "";
+            statusExtraFirstLine = null;
             rebuildBoard();
             updateStatus();
             maybePlayBotIfNeeded(/*forced=*/false);
@@ -978,9 +1052,11 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
         } else {
             correctBlack++;
         }
+        statusExtraFirstLine = null;
         OpeningMoveTree.Edge playedEdge = currentNode.getEdge(sanNorm);
         recordEdge(sideToMove, currentNode, playedEdge);
         currentNode = playedEdge.child;
+        applyBookCommentFromEdge(playedEdge);
         resetHintHighlight();
         linePly++;
         rebuildBoard();
@@ -1008,6 +1084,8 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
                 wrongMovePendingUndo = false;
                 wrongMoveBoardNum = -1;
                 wrongPositions.clear();
+                statusExtraFirstLine = null;
+                syncTrainerStateFromBoard();
                 rebuildBoard();
                 updateSelectedSquares();
                 updateStatus();
@@ -1073,6 +1151,7 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
                         recordEdge(sideFinal, nodeFinal, edgeFinal);
                         currentNode = edgeFinal.child;
                         linePly++;
+                        applyBookCommentFromEdge(edgeFinal);
                         resetHintHighlight();
                         rebuildBoard();
                         maybeCommitCoverageOnLineEnd();
@@ -1183,6 +1262,7 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
             wrongMovePendingUndo = false;
             wrongMoveBoardNum = -1;
             wrongPositions.clear();
+            statusExtraFirstLine = null;
             resetHintHighlight();
             syncTrainerStateFromBoard();
             rebuildBoard();
@@ -1197,6 +1277,7 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
         if (jni.getNumBoard() > 1) {
             gameApi.undoMove();
         }
+        statusExtraFirstLine = null;
         resetHintHighlight();
         syncTrainerStateFromBoard();
         rebuildBoard();
@@ -1217,6 +1298,7 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
         // This keeps Hint + Next enforcement consistent after Undo.
         currentNode = moveTree.getRoot();
         if (currentLineEdges == null || currentLineEdges.isEmpty()) {
+            activeBookComment = "";
             return;
         }
 
@@ -1228,6 +1310,7 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
             }
             currentNode = e.child;
         }
+        applyBookCommentAfterLineStateSync();
     }
 
     private void updateStatus() {
@@ -1239,17 +1322,33 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
         int pct = (int) Math.floor((done * 100.0) / total);
         String coverageLine = "Coverage: " + done + "/" + total + " (" + pct + "%)";
 
-        textStatus.setText(
-                getString(R.string.opening_trainer_status_turn, side)
-                        + "\n" + coverageLine
-                        + "\n" + lastEvalLine
-                        + "\n" + lastDebugLine
-        );
+        StringBuilder sb = new StringBuilder();
+        if (statusExtraFirstLine != null && !statusExtraFirstLine.isEmpty()) {
+            sb.append(statusExtraFirstLine).append("\n");
+        }
+        sb.append(getString(R.string.opening_trainer_status_turn, side))
+                .append("\n").append(coverageLine)
+                .append("\n").append(lastEvalLine);
+        sb.append("\n").append(lastDebugLine);
+        textStatus.setText(sb.toString());
         if (statusScrollView != null) {
             statusScrollView.post(() -> statusScrollView.fullScroll(View.FOCUS_DOWN));
         }
         updateStudyLineUi();
         updateOpeningLineProgress();
+        updateBookCommentUi();
+    }
+
+    private void updateBookCommentUi() {
+        if (textViewBookComment == null) {
+            return;
+        }
+        if (activeBookComment == null || activeBookComment.trim().isEmpty()) {
+            textViewBookComment.setVisibility(View.GONE);
+            return;
+        }
+        textViewBookComment.setVisibility(View.VISIBLE);
+        textViewBookComment.setText(getString(R.string.opening_trainer_book_comment_label) + " " + activeBookComment.trim());
     }
 
     /**
@@ -1362,15 +1461,16 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
     }
 
     private void showWrongMoveMessage(String debug) {
+        statusExtraFirstLine = getString(R.string.opening_trainer_wrong_move);
         lastDebugLine = "WRONG: " + debug;
-        textStatus.setText(getString(R.string.opening_trainer_wrong_move) + "\n" + lastDebugLine);
+        updateStatus();
     }
 
     private void setStatusDebug(String msg) {
         Log.d(TAG, msg);
         lastDebugLine = msg;
         if (textStatus != null) {
-            textStatus.setText(msg);
+            updateStatus();
         }
         if (statusScrollView != null) {
             statusScrollView.post(() -> statusScrollView.fullScroll(View.FOCUS_DOWN));
@@ -1542,15 +1642,17 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
                 final float cpBoardTurn = boardValue / 100.0f;
                 final float cpBoardWhite = (turn == BoardConstants.WHITE) ? cpBoardTurn : -cpBoardTurn;
 
-                // Use the static board value for user-facing eval to avoid tactical spikes from bestValue.
-                final float cpDisplayWhite = cpBoardWhite;
+                // Use the static board value for user-facing eval to avoid tactical spikes from bestValue,
+                // and display eval relative to the baseline captured at line start.
+                final float cpDisplayWhite = cpBoardWhite - evalBaselineCpWhite;
                 final float cpDisplayTurn = (turn == BoardConstants.WHITE) ? cpDisplayWhite : -cpDisplayWhite;
 
                 final String signTurn = cpDisplayTurn > 0 ? "+" : "";
                 final String line = "Engine eval d" + bestDepth + ": " + signTurn
                         + String.format("%.2f", cpDisplayTurn)
                         + " (toMove=" + (turn == BoardConstants.WHITE ? "W" : "B") + ")"
-                        + " | search=" + (cpWhite > 0 ? "+" : "") + String.format("%.2f", cpWhite) + "W";
+                        + " | boardRaw=" + boardValue + " (" + (cpBoardWhite > 0 ? "+" : "") + String.format("%.2f", cpBoardWhite) + "W)"
+                        + " | searchRaw=" + bestValue + " (" + (cpWhite > 0 ? "+" : "") + String.format("%.2f", cpWhite) + "W)";
 
                 uiHandler.post(() -> {
                     if (gen != evalGeneration) return;

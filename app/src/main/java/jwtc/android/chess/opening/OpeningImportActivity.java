@@ -10,6 +10,9 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
 import android.database.Cursor;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.util.Log;
@@ -29,6 +32,7 @@ import com.google.gson.JsonObject;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -60,6 +64,7 @@ public class OpeningImportActivity extends Activity implements AdapterView.OnIte
 
     private LichessApi lichessApi;
     private boolean serviceConnected = false;
+    private boolean offlineMode = false;
     private String lichessUsername;
 
     private static final Pattern STUDY_URL_PATTERN = Pattern.compile("(?i)https?://(www\\.)?lichess\\.org/study/([a-zA-Z0-9]{8})(/.*)?");
@@ -195,6 +200,13 @@ public class OpeningImportActivity extends Activity implements AdapterView.OnIte
     @Override
     protected void onStart() {
         super.onStart();
+        offlineMode = !isNetworkAvailable();
+        if (offlineMode) {
+            progressBar.setVisibility(View.GONE);
+            textStatus.setText(R.string.opening_import_loaded);
+            appendLog("Offline mode: using local opening studies only");
+            return;
+        }
         appendLog("onStart: binding LichessService");
         // Ensure LichessService is running and bind to obtain Auth/token
         startService(new Intent(OpeningImportActivity.this, LichessService.class));
@@ -253,6 +265,12 @@ public class OpeningImportActivity extends Activity implements AdapterView.OnIte
     }
 
     private void fetchRemoteStudies() {
+        if (!isNetworkAvailable()) {
+            progressBar.setVisibility(View.GONE);
+            textStatus.setText(R.string.opening_import_loaded);
+            appendLog("Remote study fetch skipped (offline). Local studies remain available.");
+            return;
+        }
         appendLog("Fetching remote studies v2… username=" + (lichessUsername != null ? lichessUsername : "null"));
         textStatus.setText(R.string.opening_import_loading);
         progressBar.setVisibility(View.VISIBLE);
@@ -330,6 +348,28 @@ public class OpeningImportActivity extends Activity implements AdapterView.OnIte
         }
     }
 
+    /**
+     * Lichess returns HTTP 403 with body like {@code {"error":"This study is now private"}} when the study
+     * is private and the OAuth token cannot read it (wrong account, or visibility changed).
+     */
+    private Integer describePrivateStudyExportError(JsonObject error) {
+        if (error == null || !error.has("error")) {
+            return null;
+        }
+        if (!"http_403".equals(error.get("error").getAsString()) || !error.has("body")) {
+            return null;
+        }
+        String body = error.get("body").getAsString();
+        if (body == null) {
+            return null;
+        }
+        String lower = body.toLowerCase(Locale.US);
+        if (lower.contains("private")) {
+            return R.string.opening_import_error_private_study;
+        }
+        return null;
+    }
+
     private void importStudy(String studyId, String studyName, String url) {
         textStatus.setText(R.string.opening_import_importing);
         progressBar.setVisibility(View.VISIBLE);
@@ -369,9 +409,16 @@ public class OpeningImportActivity extends Activity implements AdapterView.OnIte
             @Override
             public void onError(JsonObject error) {
                 progressBar.setVisibility(View.GONE);
-                textStatus.setText(R.string.opening_import_error);
                 Log.d(TAG, "exportStudyPgn error " + error);
                 appendLog("ERROR exportStudyPgn: " + (error != null ? error.toString() : "null"));
+
+                Integer privateHint = describePrivateStudyExportError(error);
+                if (privateHint != null) {
+                    textStatus.setText(privateHint);
+                    appendLog(getString(privateHint));
+                } else {
+                    textStatus.setText(R.string.opening_import_error);
+                }
 
                 if (error != null && error.has("error") && "http_401".equals(error.get("error").getAsString())) {
                     showReLoginDialog();
@@ -493,6 +540,22 @@ public class OpeningImportActivity extends Activity implements AdapterView.OnIte
             return t;
         }
         return null;
+    }
+
+    private boolean isNetworkAvailable() {
+        try {
+            ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (cm == null) return false;
+            Network network = cm.getActiveNetwork();
+            if (network == null) return false;
+            NetworkCapabilities caps = cm.getNetworkCapabilities(network);
+            if (caps == null) return false;
+            return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                    && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);
+        } catch (Exception e) {
+            Log.w(TAG, "Network check failed", e);
+            return false;
+        }
     }
 
     private void appendLog(String line) {
