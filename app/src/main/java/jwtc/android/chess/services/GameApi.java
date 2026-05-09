@@ -145,8 +145,16 @@ public class GameApi {
 
     public void undoMove() {
 //        Log.d(TAG, "undoMove");
-
+        // Native m_numBoard is 0 at start; each half-move increments it. Must allow undo
+        // from 1 -> 0 (e.g. first wrong move as White) — old guard (<= 1) skipped that.
+        if (jni.getNumBoard() <= 0) {
+            return;
+        }
         jni.undo();
+        // Keep _arrPGN in sync with the board: each successful forward move appends one entry.
+        if (!_arrPGN.isEmpty()) {
+            _arrPGN.remove(_arrPGN.size() - 1);
+        }
         dispatchState();
     }
 
@@ -173,6 +181,9 @@ public class GameApi {
             } else {
                 while (toNumBoard < currentNumBoard) {
                     jni.undo();
+                    if (!_arrPGN.isEmpty()) {
+                        _arrPGN.remove(_arrPGN.size() - 1);
+                    }
                     currentNumBoard--;
                 }
             }

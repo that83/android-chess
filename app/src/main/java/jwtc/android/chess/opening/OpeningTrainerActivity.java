@@ -484,13 +484,14 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
                 buttonMenu.setOnClickListener(v -> menuDialog.show());
             }
             if (buttonPrev != null) {
-                buttonPrev.setOnClickListener(v -> {
-                    gameApi.undoMove();
-                    rebuildBoard();
-                    updateStatus();
-                });
+                buttonPrev.setOnClickListener(v -> undoLastMove());
                 buttonPrev.setOnLongClickListener(v -> {
+                    if (wrongMovePendingUndo) {
+                        undoWrongMoveIfPending();
+                        return true;
+                    }
                     gameApi.jumpToBoardNum(1);
+                    syncTrainerStateFromBoard();
                     rebuildBoard();
                     updateStatus();
                     return true;
@@ -498,14 +499,18 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
             }
             if (buttonNext != null) {
                 buttonNext.setOnClickListener(v -> {
-                    gameApi.nextMove();
-                    rebuildBoard();
-                    updateStatus();
+                    if (wrongMovePendingUndo) {
+                        undoWrongMoveIfPending();
+                    } else {
+                        advanceOneMoveForReview();
+                    }
                 });
                 buttonNext.setOnLongClickListener(v -> {
-                    gameApi.jumpToBoardNum(gameApi.getPGNSize());
-                    rebuildBoard();
-                    updateStatus();
+                    if (wrongMovePendingUndo) {
+                        undoWrongMoveIfPending();
+                    } else {
+                        advanceToEndOfLineForReview();
+                    }
                     return true;
                 });
             }
@@ -1483,23 +1488,36 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
         return true;
     }
 
+    /**
+     * Revert the illegal half-move the user played. {@code linePly} was not advanced for that move;
+     * after {@link GameApi#undoMove()} fixes the PGN stack, we resync the tree node from the board.
+     */
+    private void undoWrongMoveIfPending() {
+        if (!wrongMovePendingUndo) {
+            return;
+        }
+        try {
+            gameApi.undoMove();
+        } catch (Exception ignored) {}
+        wrongMovePendingUndo = false;
+        wrongMoveBoardNum = -1;
+        wrongPositions.clear();
+        statusExtraFirstLine = null;
+        resetHintHighlight();
+        syncTrainerStateFromBoard();
+        rebuildBoard();
+        updateSelectedSquares();
+        updateStatus();
+        maybePlayBotIfNeeded(/*forced=*/false);
+    }
+
     @Override
     public boolean dispatchTouchEvent(MotionEvent ev) {
         if (wrongMovePendingUndo && ev.getActionMasked() == MotionEvent.ACTION_DOWN && chessBoardView != null) {
             float localX = ev.getX() - chessBoardView.getX();
             float localY = ev.getY() - chessBoardView.getY();
             if (localX >= 0 && localX <= chessBoardView.getWidth() && localY >= 0 && localY <= chessBoardView.getHeight()) {
-                try {
-                    gameApi.undoMove();
-                } catch (Exception ignored) {}
-                wrongMovePendingUndo = false;
-                wrongMoveBoardNum = -1;
-                wrongPositions.clear();
-                statusExtraFirstLine = null;
-                syncTrainerStateFromBoard();
-                rebuildBoard();
-                updateSelectedSquares();
-                updateStatus();
+                undoWrongMoveIfPending();
                 return true;
             }
         }
@@ -1663,23 +1681,12 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
 
     private void undoLastMove() {
         JNI jni = JNI.getInstance();
-        if (jni.getNumBoard() <= 1) {
+        if (wrongMovePendingUndo) {
+            undoWrongMoveIfPending();
             return;
         }
 
-        if (wrongMovePendingUndo) {
-            // Undo the single wrong user move.
-            gameApi.undoMove();
-            wrongMovePendingUndo = false;
-            wrongMoveBoardNum = -1;
-            wrongPositions.clear();
-            statusExtraFirstLine = null;
-            resetHintHighlight();
-            syncTrainerStateFromBoard();
-            rebuildBoard();
-            updateSelectedSquares();
-            updateStatus();
-            maybePlayBotIfNeeded(/*forced=*/false);
+        if (jni.getNumBoard() <= 1) {
             return;
         }
 
@@ -1700,13 +1707,13 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
     private void syncTrainerStateFromBoard() {
         if (moveTree == null || moveTree.getRoot() == null) return;
 
-        // Keep linePly consistent with the current board timeline.
-        // board position 0 is initial; each half-move increments numBoard by 1.
+        // Keep linePly consistent with the native board: m_numBoard is 0 at chapter start and
+        // increments by 1 per half-move. linePly is the index of the *next* edge in currentLineEdges
+        // (same convention as after playAutoOpeningMovesUntilUsersTurn / correct user moves).
         JNI jni = JNI.getInstance();
-        linePly = Math.max(0, jni.getNumBoard() - 1);
+        linePly = Math.max(0, jni.getNumBoard());
 
-        // Rebuild currentNode by walking the currently selected exact line.
-        // This keeps Hint + Next enforcement consistent after Undo.
+        // Rebuild currentNode by walking the first linePly edges already on the board.
         currentNode = moveTree.getRoot();
         if (currentLineEdges == null || currentLineEdges.isEmpty()) {
             activeBookComment = "";
@@ -1722,6 +1729,64 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
             currentNode = e.child;
         }
         applyBookCommentAfterLineStateSync();
+    }
+
+    /**
+     * Advance one half-move along the current line for review/learning.
+     * Plays the next expected move (user's or opponent's) without requiring board interaction.
+     */
+    private void advanceOneMoveForReview() {
+        if (currentLineEdges == null || currentLineEdges.isEmpty()) return;
+        if (linePly >= currentLineEdges.size()) return;
+
+        JNI jni = JNI.getInstance();
+        if (jni.isEnded() != 0) return;
+
+        OpeningMoveTree.Edge edge = currentLineEdges.get(linePly);
+        int move = findMoveForSanNorm(jni, edge.sanNorm);
+        if (move == 0) {
+            syncTrainerStateFromBoard();
+            move = findMoveForSanNorm(jni, edge.sanNorm);
+        }
+        if (move == 0) return;
+
+        int sideBefore = jni.getTurn();
+        gameApi.move(move, -1);
+        recordEdge(sideBefore, currentNode, edge);
+        currentNode = edge.child;
+        applyBookCommentFromEdge(edge);
+        linePly++;
+        resetHintHighlight();
+        rebuildBoard();
+        updateOpeningLineProgress();
+        updateStatus();
+        maybeCommitCoverageOnLineEnd();
+    }
+
+    /**
+     * Advance to the end of the current line for review (long-press Next).
+     */
+    private void advanceToEndOfLineForReview() {
+        if (currentLineEdges == null || currentLineEdges.isEmpty()) return;
+        JNI jni = JNI.getInstance();
+        int guard = 0;
+        while (linePly < currentLineEdges.size() && jni.isEnded() == 0 && guard < 500) {
+            OpeningMoveTree.Edge edge = currentLineEdges.get(linePly);
+            int move = findMoveForSanNorm(jni, edge.sanNorm);
+            if (move == 0) break;
+            int sideBefore = jni.getTurn();
+            gameApi.move(move, -1);
+            recordEdge(sideBefore, currentNode, edge);
+            currentNode = edge.child;
+            linePly++;
+            guard++;
+        }
+        applyBookCommentAfterLineStateSync();
+        resetHintHighlight();
+        rebuildBoard();
+        updateOpeningLineProgress();
+        updateStatus();
+        maybeCommitCoverageOnLineEnd();
     }
 
     private void updateStatus() {
