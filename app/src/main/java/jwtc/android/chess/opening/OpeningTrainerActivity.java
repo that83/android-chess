@@ -12,7 +12,6 @@ import android.text.TextUtils;
 import android.util.Log;
 import android.view.View;
 import android.view.MotionEvent;
-import android.text.method.ScrollingMovementMethod;
 import android.widget.ScrollView;
 import android.widget.ImageButton;
 import android.widget.ProgressBar;
@@ -422,17 +421,6 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
             evalBarView = findViewById(R.id.EvalBar);
             openingLineProgressView = findViewById(R.id.OpeningLineProgress);
             textViewBookComment = findViewById(R.id.TextViewOpeningBookComment);
-            if (textViewBookComment != null) {
-                textViewBookComment.setMovementMethod(new ScrollingMovementMethod());
-                textViewBookComment.setOnTouchListener((v, event) -> {
-                    v.getParent().requestDisallowInterceptTouchEvent(true);
-                    if (event.getActionMasked() == MotionEvent.ACTION_UP
-                            || event.getActionMasked() == MotionEvent.ACTION_CANCEL) {
-                        v.getParent().requestDisallowInterceptTouchEvent(false);
-                    }
-                    return false;
-                });
-            }
             textViewStudyLine = findViewById(R.id.TextViewOpeningTrainerStudyLine);
             switchAutoNext = findViewById(R.id.SwitchAutoNext);
             buttonOpeningNextLine = findViewById(R.id.ButtonOpeningNextLine);
