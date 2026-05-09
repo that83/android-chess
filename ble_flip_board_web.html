@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CYNUS — set flip board on</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 28rem; margin: 2rem auto; padding: 0 1rem; }
+    button { font-size: 1.1rem; padding: 0.75rem 1.25rem; width: 100%; cursor: pointer; }
+    #log { margin-top: 1rem; font-size: 0.9rem; white-space: pre-wrap; color: #333; }
+    .err { color: #b00; }
+  </style>
+</head>
+<body>
+  <h1>Flip board ON</h1>
+  <p>Gửi lệnh <code>set flip board on</code> qua BLE (giống script Python).</p>
+  <p><strong>Chrome Android</strong> — bấm nút, chọn thiết bị <strong>CYNUS-…</strong></p>
+  <button id="go" type="button">Kết nối &amp; gửi lệnh</button>
+  <div id="log"></div>
+  <script>
+    const FFF0 = "0000fff0-0000-1000-8000-00805f9b34fb";
+    const FFF1 = "0000fff1-0000-1000-8000-00805f9b34fb";
+    const CMD = new TextEncoder().encode("set flip board on\r\n");
+
+    function log(msg, isErr) {
+      const el = document.getElementById("log");
+      const line = document.createElement("div");
+      line.textContent = msg;
+      if (isErr) line.className = "err";
+      el.appendChild(line);
+    }
+
+    document.getElementById("go").addEventListener("click", async () => {
+      document.getElementById("log").textContent = "";
+      if (!navigator.bluetooth) {
+        log("Trình duyệt không hỗ trợ Web Bluetooth. Dùng Chrome trên Android (không phải WebView thường).", true);
+        return;
+      }
+      let device;
+      try {
+        device = await navigator.bluetooth.requestDevice({
+          filters: [{ namePrefix: "CYNUS-" }],
+          optionalServices: [FFF0],
+        });
+      } catch (e) {
+        log(String(e), true);
+        return;
+      }
+      let server, service, ch;
+      try {
+        log("Đang kết nối GATT…");
+        server = await device.gatt.connect();
+        service = await server.getPrimaryService(FFF0);
+        ch = await service.getCharacteristic(FFF1);
+        if (ch.properties.writeWithoutResponse) {
+          await ch.writeValueWithoutResponse(CMD);
+          log("Đã gửi (writeWithoutResponse).");
+        } else {
+          await ch.writeValue(CMD);
+          log("Đã gửi (writeWithResponse).");
+        }
+      } catch (e) {
+        log("Lỗi: " + e, true);
+        log("Nếu sai service UUID: mở nRF Connect, xem service chứa đặc tính FFF1 rồi sửa FFF0/FFF1 trong file HTML.", true);
+        return;
+      } finally {
+        try {
+          if (device && device.gatt.connected) device.gatt.disconnect();
+        } catch (_) {}
+      }
+      log("Xong.");
+    });
+  </script>
+</body>
+</html>

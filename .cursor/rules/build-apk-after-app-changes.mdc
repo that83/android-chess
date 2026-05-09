@@ -1,0 +1,17 @@
+---
+description: Sau khi sửa code Android app, chạy assembleFossDebug để tạo APK
+alwaysApply: true
+---
+
+# Build APK sau thay đổi code app
+
+Khi đã chỉnh sửa mã trong `app/` (Java/Kotlin, resources layout, manifest, v.v.), **luôn chạy lệnh build APK** để người dùng có file cài đặt mới, không dừng ở `compile` nếu mục tiêu là cài thử trên thiết bị:
+
+```powershell
+Set-Location "D:\github\android-chess\android-chess"
+.\gradlew :app:assembleFossDebug
+```
+
+APK đầu ra: `app/build/outputs/apk/foss/debug/app-foss-debug.apk`
+
+Chỉ bỏ qua khi user nói rõ không cần build hoặc chỉ thay đổi tài liệu/script ngoài `app/`.

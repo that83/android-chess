@@ -4,7 +4,13 @@ Theo thứ tự sidebar (courseExplorerData.chapters): mở từng bài Learn, b
 ghép nhiều game PGN trong một file (tag tùy chỉnh [Guide "..."] cho nội dung hướng dẫn).
 
   cd tools/chessable_export
-  python export_learn_series.py --url "https://www.chessable.com/learn/5193/2657521/15" --max-lessons 3
+  python export_learn_series.py --url "https://www.chessable.com/learn/5193/2657521/15"
+  python export_learn_series.py --url "..." --max-lessons 50   # giới hạn N bài (test)
+
+Mặc định: lấy hết các bài từ URL bắt đầu tới cuối khóa (raw_json/*.json + combined_lichess.pgn).
+
+Giám sát lâu: mở file ``run_<id>_progress.json`` trong ``--out-dir`` (cập nhật sau mỗi bài OK);
+hoặc chạy ``python -u export_learn_series.py ...`` để log console không bị buffer.
 
 Cần auth.json (python export_chessable.py login --headed).
 """
@@ -15,6 +21,7 @@ import argparse
 import json
 import re
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -118,6 +125,58 @@ def _fetch_explorer_api(context, bid: int) -> dict | None:
         return None
 
 
+def _planned_lesson_count(max_lessons: int, idx0: int, queue_len: int) -> int:
+    """Số bài sẽ thử tải: còn lại trong queue, hoặc giới hạn bởi max_lessons (>0)."""
+    remaining = queue_len - idx0
+    if max_lessons <= 0:
+        return remaining
+    return min(max_lessons, remaining)
+
+
+def _progress_step(n_to_fetch: int, override: int) -> int:
+    if override > 0:
+        return override
+    if n_to_fetch <= 15:
+        return 1
+    if n_to_fetch <= 80:
+        return 5
+    return 25
+
+
+def _write_checkpoint(
+    out_dir: Path,
+    run_id: str,
+    games: list[str],
+    meta: list[dict],
+    n_to_fetch: int,
+    t_start: float,
+    last_i: int,
+) -> None:
+    """Ghi PGN + progress JSON sau mỗi bài OK — hạn chế mất dữ liệu khi gián đoạn."""
+    out_pgn = out_dir / "combined_lichess.pgn"
+    out_pgn.write_text("\n\n".join(g for g in games if g) + "\n", encoding="utf-8")
+    prog = out_dir / f"run_{run_id}_progress.json"
+    elapsed = max(time.monotonic() - t_start, 0.001)
+    done = len(meta)
+    eta = (elapsed / done) * (n_to_fetch - done) if done else None
+    prog.write_text(
+        json.dumps(
+            {
+                "run_id": run_id,
+                "last_completed_loop_index": last_i,
+                "games_written": done,
+                "planned_lessons": n_to_fetch,
+                "elapsed_sec": round(elapsed, 1),
+                "eta_sec_remaining": round(eta, 1) if eta is not None else None,
+                "lessons": meta,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+
 def cmd_run(
     auth_path: Path,
     start_url: str,
@@ -126,6 +185,7 @@ def cmd_run(
     headed: bool,
     channel: str | None,
     wait_ms: int,
+    progress_every: int,
 ) -> None:
     if not auth_path.is_file():
         print(
@@ -191,12 +251,29 @@ def cmd_run(
             sys.exit(1)
 
         queue_len = len(queue)
-        stopped_early_end_of_course = idx0 + max_lessons > queue_len
+        n_to_fetch = _planned_lesson_count(max_lessons, idx0, queue_len)
+        stopped_early_end_of_course = max_lessons > 0 and idx0 + max_lessons > queue_len
+        if n_to_fetch <= 0:
+            browser.close()
+            print("Không có bài nào để xuất (đã ở cuối danh sách?).", file=sys.stderr)
+            sys.exit(1)
+        print(
+            f"Plan: {n_to_fetch} lesson(s) from queue index {idx0} (course has {queue_len} lines).",
+            flush=True,
+        )
+        (out_dir / "course_explorer_snapshot.json").write_text(
+            json.dumps(explorer_payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        print(f"Wrote {out_dir / 'course_explorer_snapshot.json'}", flush=True)
 
-        for i in range(max_lessons):
+        step = _progress_step(n_to_fetch, progress_every)
+        t_run = time.monotonic()
+
+        for i in range(n_to_fetch):
             pos = idx0 + i
             if pos >= len(queue):
-                print(f"Dừng: hết danh sách (đã tới cuối queue, {len(queue)} mục).")
+                print(f"Dừng: hết danh sách (đã tới cuối queue, {len(queue)} mục).", flush=True)
                 break
             item = queue[pos]
             url = f"https://www.chessable.com/learn/{item['bid']}/{item['oid']}/{item['lid']}"
@@ -227,16 +304,23 @@ def cmd_run(
                     _wait_lesson()
                 except Exception:
                     pass
+            if oid_i not in captured and wait_ms < 20_000:
+                try:
+                    page.wait_for_timeout(5000)
+                    _wait_lesson()
+                except Exception:
+                    pass
 
             if oid_i not in captured:
                 print(
                     f"Bỏ qua oid={oid_i} ({item.get('name')!r}) — không thấy getLesson.",
                     file=sys.stderr,
+                    flush=True,
                 )
                 continue
 
             lesson_json = captured[oid_i]
-            raw_name = f"{i + 1:03d}_oid{oid_i}_lid{item['lid']}.json"
+            raw_name = f"{pos + 1:05d}_oid{oid_i}_lid{item['lid']}.json"
             raw_path = raw_dir / raw_name
             raw_path.write_text(
                 json.dumps(lesson_json, ensure_ascii=False, indent=2),
@@ -244,12 +328,21 @@ def cmd_run(
             )
 
             pgn_game = lesson_api_json_to_lichess_pgn(lesson_json)
-            games.append(pgn_game.strip())
             moves = (lesson_json.get("lesson") or {}).get("moves") or []
             guide_val = build_guide_header_value(moves)
+            in_combined = bool(pgn_game.strip())
+            if in_combined:
+                games.append(pgn_game.strip())
+            else:
+                print(
+                    f"Bỏ qua oid={oid_i} ({item.get('name')!r}) — không có movetext (chỉ nội dung text).",
+                    file=sys.stderr,
+                    flush=True,
+                )
             meta.append(
                 {
                     "i": i,
+                    "queue_pos": pos,
                     "url": url,
                     "bid": item["bid"],
                     "oid": item["oid"],
@@ -258,9 +351,21 @@ def cmd_run(
                     "name": item["name"],
                     "move_count": len(moves),
                     "has_guide": bool(guide_val),
+                    "in_combined_pgn": in_combined,
                     "raw_json": raw_path.relative_to(out_dir).as_posix(),
                 }
             )
+
+            _write_checkpoint(out_dir, run_id, games, meta, n_to_fetch, t_run, i)
+
+            if (i + 1) % step == 0 or (i + 1) == n_to_fetch:
+                el = time.monotonic() - t_run
+                done = len(meta)
+                eta_s = (el / done) * (n_to_fetch - done) if done else 0.0
+                print(
+                    f"  [{i + 1}/{n_to_fetch}] ok | {el:.0f}s elapsed | ETA ~{eta_s:.0f}s | {item.get('name', '')[:56]!r}",
+                    flush=True,
+                )
 
         browser.close()
 
@@ -274,19 +379,21 @@ def cmd_run(
         "start_url": start_url.strip(),
         "bid": bid,
         "queue_total_lessons": queue_len,
-        "max_lessons_requested": max_lessons,
+        "start_queue_index": idx0,
+        "planned_lessons": n_to_fetch,
+        "max_lessons_cap": max_lessons if max_lessons > 0 else None,
         "games_written": len(meta),
         "stopped_early_end_of_course": stopped_early_end_of_course,
         "out_pgn": out_pgn.name,
         "lessons": meta,
     }
     summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"Wrote {out_pgn} ({len(meta)} game PGN)")
-    print(f"Wrote {summary_path}")
+    print(f"Wrote {out_pgn} ({len(meta)} games), raw_json: {len(meta)} files", flush=True)
+    print(f"Wrote {summary_path}", flush=True)
 
-    if len(meta) < max_lessons and not stopped_early_end_of_course:
+    if len(meta) < n_to_fetch:
         print(
-            "Cảnh báo: thiếu bài so với --max-lessons (getLesson không về hoặc oid lệch).",
+            f"Cảnh báo: chỉ ghi được {len(meta)}/{n_to_fetch} bài (getLesson lỗi hoặc thiếu).",
             file=sys.stderr,
         )
 
@@ -334,7 +441,13 @@ def main() -> None:
         default=Path(__file__).resolve().parent / "out_series",
         help="Thư mục ghi combined_lichess.pgn và raw_json/",
     )
-    ap.add_argument("--max-lessons", type=int, default=3, help="Số bài tối đa (test: 3; sau đổi lớn để hết khóa)")
+    ap.add_argument(
+        "--max-lessons",
+        type=int,
+        default=0,
+        metavar="N",
+        help="Toi da N bai; mac dinh 0 = lay het tu URL bat dau den het khoa",
+    )
     ap.add_argument("--headed", action="store_true")
     ap.add_argument(
         "--channel",
@@ -343,6 +456,13 @@ def main() -> None:
         help="chrome | msedge | … — giống export_chessable.py",
     )
     ap.add_argument("--wait-ms", type=int, default=8000, help="Chờ sau load (XHR getLesson)")
+    ap.add_argument(
+        "--progress-every",
+        type=int,
+        default=0,
+        metavar="K",
+        help="In log mỗi K bài (0 = tự chọn theo độ dài lô)",
+    )
     args = ap.parse_args()
 
     if args.selfcheck:
@@ -358,6 +478,7 @@ def main() -> None:
         headed=args.headed,
         channel=_chan(args.channel),
         wait_ms=args.wait_ms,
+        progress_every=args.progress_every,
     )
 
 

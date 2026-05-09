@@ -158,9 +158,10 @@ def lesson_api_json_to_lichess_pgn(data: dict[str, Any]) -> str:
         hdr.append(f'[FEN "{_escape_pgn_header(fen)}"]')
 
     body = build_movetext_from_moves(moves)
-    if not body:
-        body = ""
-    return "\n".join(hdr) + "\n\n" + body + "\n\n"
+    if not (body and body.strip()):
+        # Text-only lessons (no plies): skip emitting a game so combined PGN stays importable.
+        return ""
+    return "\n".join(hdr) + "\n\n" + body.strip() + "\n\n"
 
 
 def build_lesson_queue_from_explorer(explorer_body: dict[str, Any]) -> list[LessonRef]:
