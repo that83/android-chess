@@ -1,0 +1,2395 @@
+<!DOCTYPE html>
+<html lang="vi">
+<!--
+  Offline viewer — bố cục gần Chessable Learn: cột trái (khóa), giữa (bàn + progress),
+  phải (Quiz / White to play! / chú thích). Kéo thả hoặc bấm ô gốc → ô đích.
+
+  Mở qua http://localhost:... ; thư mục vendor/ chứa chessboard + ảnh quân.
+-->
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Learn — offline</title>
+  <link rel="stylesheet" href="vendor/chessboard.min.css" />
+  <style>
+    /* Bàn: cream + olive giống screenshot Chessable */
+    .white-1e1d7 { background-color: #f4ecd8 !important; color: #3d4f2d !important; }
+    .black-3c85d { background-color: #7d9058 !important; color: #f4ecd8 !important; }
+    .board-b72b1 { border: 2px solid #5a6d4a !important; box-sizing: content-box !important; }
+    .square-55d63.cb-sel {
+      box-shadow: inset 0 0 0 3px #27ad8d !important;
+    }
+    .square-55d63.cb-drawing-hi {
+      box-shadow: inset 0 0 0 3px #4a8cdd !important;
+    }
+    /* Nước vừa đi (theo chuỗi JSON / diagram): vàng nhạt ô gốc + ô đích */
+    .square-55d63.cb-last-from,
+    .square-55d63.cb-last-to {
+      box-shadow: inset 0 0 0 999px rgba(255, 235, 150, 0.42) !important;
+    }
+
+    :root {
+      --topblue: #3569b3;
+      --left-bg: #f7f8fa;
+      --center-bg: #eceef0;
+      --card: #fff;
+      --border: #d8dce0;
+      --text: #222;
+      --muted: #5f6b7a;
+      --accent: #27ad8d;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, Roboto, "Helvetica Neue", sans-serif;
+      background: var(--center-bg);
+      color: var(--text);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .topbar {
+      flex-shrink: 0;
+      height: 48px;
+      background: var(--topblue);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      padding: 0 16px;
+      gap: 20px;
+      font-size: 0.95rem;
+    }
+    .topbar .brand { font-weight: 700; letter-spacing: 0.02em; }
+    .topbar .tabs {
+      display: flex;
+      gap: 4px;
+      margin-left: 8px;
+    }
+    .topbar .tabs span {
+      padding: 6px 14px;
+      border-radius: 6px 6px 0 0;
+      cursor: default;
+      font-size: 0.88rem;
+    }
+    .topbar .tabs .active {
+      background: rgba(255,255,255,0.95);
+      color: var(--topblue);
+      font-weight: 600;
+    }
+    .topbar .tabs .inactive { opacity: 0.75; cursor: pointer; }
+    .topbar .tabs span { user-select: none; }
+    #layout {
+      flex: 1;
+      display: flex;
+      min-height: 0;
+    }
+    /* Cột trái — sáng như trang Learn */
+    nav#sidebar {
+      width: min(300px, 32vw);
+      background: var(--left-bg);
+      border-right: 1px solid var(--border);
+      overflow: auto;
+      flex-shrink: 0;
+    }
+    .course-title {
+      padding: 14px 16px;
+      font-weight: 700;
+      font-size: 0.95rem;
+      color: #1a1a1a;
+      border-bottom: 1px solid var(--border);
+    }
+    .chapter {
+      border-bottom: 1px solid var(--border);
+      background: #fff;
+    }
+    .chapter summary {
+      cursor: pointer;
+      padding: 10px 14px;
+      font-weight: 600;
+      font-size: 0.86rem;
+      list-style: none;
+      user-select: none;
+      color: #333;
+    }
+    .chapter summary::-webkit-details-marker { display: none; }
+    .chapter summary::before { content: "▸ "; color: var(--muted); }
+    .chapter[open] summary::before { content: "▾ "; }
+    .var-list { max-height: 200px; overflow-y: auto; background: #fafbfc; }
+    .var-btn {
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: 8px 14px 8px 18px;
+      border: none;
+      background: transparent;
+      color: #2c3e50;
+      cursor: pointer;
+      font-size: 0.84rem;
+      border-left: 3px solid transparent;
+    }
+    .var-btn:hover { background: #eef1f4; }
+    .var-btn.active { border-left-color: var(--accent); background: #e8f5f1; font-weight: 500; }
+
+    main#main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      overflow: hidden;
+      background: var(--center-bg);
+    }
+    #lesson-work {
+      flex: 1;
+      display: flex;
+      flex-direction: row;
+      flex-wrap: nowrap;
+      min-height: 0;
+      overflow: auto;
+      padding: 16px;
+      gap: 20px;
+      align-items: flex-start;
+      justify-content: center;
+    }
+    #board-column {
+      flex: 1 1 auto;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-width: 0;
+    }
+    .board-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 14px;
+      justify-content: center;
+      width: 100%;
+      max-width: 720px;
+    }
+    .board-toolbar button {
+      background: #fff;
+      border: 1px solid var(--border);
+      color: #333;
+      padding: 12px 18px;
+      border-radius: 10px;
+      cursor: pointer;
+      font-size: 1rem;
+      min-height: 48px;
+      min-width: 48px;
+    }
+    .board-toolbar button:hover { background: #f0f2f5; }
+    .board-toolbar button.primary {
+      background: var(--accent);
+      border-color: #1f8a70;
+      color: #fff;
+    }
+    .board-toolbar button.primary:hover { filter: brightness(1.05); }
+    /* chessboard.js đọc width của #board; nếu 0 thì bàn vỡ thành một hàng */
+    .board-wrap {
+      position: relative;
+      margin: 0 auto;
+      flex-shrink: 0;
+      min-width: 280px;
+      width: 560px;
+      max-width: 100%;
+      touch-action: none;
+      overflow: visible;
+    }
+    #board {
+      margin: 0;
+      flex-shrink: 0;
+      width: 100%;
+      touch-action: none;
+      overflow: visible;
+    }
+    .board-draw-layer {
+      position: absolute;
+      left: 0;
+      top: 0;
+      pointer-events: none;
+      z-index: 6;
+      overflow: visible;
+      shape-rendering: geometricPrecision;
+    }
+    .progress-wrap {
+      height: 10px;
+      background: #d5d8dc;
+      border-radius: 5px;
+      margin-top: 16px;
+      overflow: hidden;
+      flex-shrink: 0;
+      min-width: 280px;
+      width: 560px;
+      max-width: 100%;
+    }
+    .progress-bar {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #27ad8d, #3bc49f);
+      border-radius: 4px;
+      transition: width 0.2s ease;
+    }
+    .phase-badge {
+      margin-top: 12px;
+      font-size: 0.95rem;
+      color: var(--muted);
+      text-align: center;
+      width: 100%;
+      max-width: min(72vmin, 720px, calc(100vw - 320px));
+      min-width: 300px;
+      line-height: 1.35;
+    }
+    .review-prompt {
+      font-size: 0.95rem;
+      color: var(--muted);
+      margin: 0;
+      line-height: 1.5;
+    }
+    /* Panel phải — thẻ trắng như screenshot */
+    #panel-right {
+      flex: 1 1 320px;
+      max-width: 440px;
+      min-width: 260px;
+      background: var(--card);
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+      padding: 0;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      max-height: calc(100vh - 100px);
+    }
+    #panel-right .panel-head {
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border);
+      font-weight: 700;
+      font-size: 1rem;
+      color: #1a1a1a;
+    }
+    #panel-right .panel-body {
+      padding: 16px 18px 20px;
+      overflow-y: auto;
+      flex: 1;
+    }
+    .quiz-head {
+      font-size: 1.05rem;
+      font-weight: 600;
+      margin-bottom: 8px;
+      color: #333;
+    }
+    .turn-line {
+      font-size: 1.15rem;
+      font-weight: 600;
+      margin: 0 0 14px;
+      color: #222;
+    }
+    .coach-all {
+      border-top: 1px solid var(--border);
+      padding-top: 12px;
+      margin-top: 2px;
+    }
+    .coach-pgn-cluster {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      gap: 0.35em 0.55em;
+      margin: 8px 0 18px;
+    }
+    .coach-pgn-cluster .coach-pgn-row,
+    .coach-pgn-cluster .pgn-line {
+      font-size: 1.06rem;
+      line-height: 1.75;
+      color: #242d38;
+    }
+    .coach-pgn-cluster .coach-pgn-row--half {
+      flex: 0 0 100%;
+      width: 100%;
+      margin: 0;
+    }
+    .coach-pgn-cluster .pgn-no {
+      font-size: 0.98rem;
+      font-weight: 600;
+    }
+    .coach-pgn-cluster .pgn-move {
+      padding: 3px 5px;
+      font-weight: 600;
+    }
+    .line-opening-title {
+      font-size: 0.9rem;
+      color: var(--muted);
+      margin-bottom: 10px;
+    }
+    .coach-body {
+      font-size: 0.95rem;
+      line-height: 1.6;
+      color: #222;
+      white-space: normal;
+    }
+    .coach-flow-piece {
+      margin: 0 0 16px;
+    }
+    .coach-flow-piece:last-child {
+      margin-bottom: 0;
+    }
+    .coach-flow-chunk {
+      font-size: 0.95rem;
+      line-height: 1.6;
+      color: #222;
+    }
+    .coach-flow-chunk--inline {
+      display: inline;
+      margin: 0;
+      vertical-align: baseline;
+    }
+    .coach-block {
+      margin: 0 0 14px;
+      font-size: 0.9rem;
+      line-height: 1.55;
+      color: #334;
+    }
+    .coach-label {
+      font-size: 0.72rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+    .coach-h {
+      font-size: 1rem;
+      font-weight: 700;
+      margin: 0 0 10px;
+      color: #111;
+    }
+    .coach-quote {
+      margin: 8px 0;
+      padding: 10px 12px;
+      border-left: 4px solid var(--accent);
+      background: #f4faf7;
+      border-radius: 0 8px 8px 0;
+      color: #334;
+    }
+    .coach-sq {
+      font-weight: 600;
+      color: #0d47a1;
+      cursor: pointer;
+      text-decoration: underline;
+      text-decoration-style: dotted;
+      text-underline-offset: 3px;
+    }
+    .coach-sq:hover { color: #1565c0; }
+    .coach-move {
+      font-weight: 600;
+      font-family: ui-monospace, 'Segoe UI Symbol', sans-serif;
+      font-size: 1.04rem;
+      cursor: pointer;
+      padding: 1px 3px;
+      border-radius: 3px;
+      color: #1565c0;
+    }
+    .coach-move:hover { background: rgba(21, 101, 192, 0.08); }
+    .coach-move--here {
+      background: rgba(0, 0, 0, 0.08);
+      outline: none;
+      border-radius: 3px;
+    }
+    /* Biến thể (key V): một dòng chữ xanh như Chessable web, không khung xám */
+    .coach-var {
+      margin: 12px 0;
+      padding: 0;
+      background: transparent;
+      border: none;
+      border-radius: 0;
+      color: #1565c0;
+      font-size: 1.04rem;
+      line-height: 1.68;
+    }
+    .coach-var .coach-move,
+    .coach-var .pgn-move {
+      color: #1565c0;
+    }
+    .coach-var-nested {
+      display: block;
+      margin-top: 0.4em;
+    }
+    .coach-link {
+      color: var(--topblue);
+      word-break: break-all;
+    }
+    .coach-fen {
+      display: block;
+      font-size: 0.78em;
+      margin: 8px 0;
+      padding: 6px 8px;
+      background: #f0f2f5;
+      border-radius: 6px;
+      word-break: break-all;
+    }
+    .pgn-line {
+      font-family: ui-monospace, Consolas, 'Segoe UI Symbol', sans-serif;
+      font-size: 0.88rem;
+      line-height: 1.65;
+      color: #3a4450;
+      word-wrap: break-word;
+    }
+    .pgn-no { color: var(--muted); font-weight: 500; margin-right: 2px; }
+    .pgn-move {
+      cursor: pointer;
+      padding: 2px 4px;
+      border-radius: 4px;
+    }
+    .pgn-move:hover { background: #eef1f5; }
+    .pgn-move--current {
+      background: rgba(0, 0, 0, 0.09);
+      font-weight: 600;
+      outline: none;
+    }
+    .pgn-move--var-current,
+    .coach-var .pgn-move--var-current {
+      background: rgba(21, 101, 192, 0.24);
+      font-weight: 600;
+      outline: none;
+    }
+    .coach-pgn-cluster .coach-pgn-row--full {
+      flex: 0 0 auto;
+      margin: 0;
+    }
+    .done-msg { color: var(--accent); font-weight: 600; }
+    .err {
+      margin: 24px;
+      padding: 14px;
+      background: #fdeaea;
+      border: 1px solid #e8a0a0;
+      border-radius: 8px;
+      color: #822;
+    }
+    .loading { padding: 24px; color: var(--muted); }
+    @media (max-width: 960px) {
+      #lesson-work { flex-direction: column; align-items: stretch; }
+      #panel-right { max-width: none; max-height: none; }
+      nav#sidebar { width: 100%; max-height: 32vh; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <span class="brand">chessable</span>
+    <div class="tabs" id="topTabs">
+      <span class="active tab-mode" data-mode="learn" role="button" tabindex="0">Learn</span>
+      <span class="inactive tab-mode" data-mode="review" role="button" tabindex="0">Review</span>
+    </div>
+    <span style="opacity:0.9;font-size:0.82rem;margin-left:auto">offline · dữ liệu export</span>
+  </header>
+  <div id="layout">
+    <nav id="sidebar"></nav>
+    <main id="main">
+      <p class="loading" id="placeholder">Chọn một line trong danh sách trái…</p>
+    </main>
+  </div>
+
+  <script src="vendor/jquery.min.js"></script>
+  <script src="vendor/chess.min.js"></script>
+  <script src="vendor/chessboard.min.js"></script>
+  <script>
+(function () {
+  var PIECE_THEME = 'vendor/img/chesspieces/wikipedia/{piece}.png';
+
+  function cleanSan(san) {
+    if (!san) return san;
+    var t = String(san).trim();
+    /* Chessable: -+ / ± kết (đánh giá), phải bỏ trước NAG !? kép */
+    t = t.replace(/(?:[-–])\+$/g, '').replace(/[±∓]$/g, '').trim();
+    t = t.replace(/[+#?!]+$/g, '').trim();
+    return t;
+  }
+
+  /** SAN cho chess.js: đổi quân Unicode (♔♚…) → Kk… rồi cleanSan. */
+  function asciiSanForEngine(san) {
+    if (!san) return san;
+    var t = String(san).trim();
+    var fig = {
+      '\u2654': 'K', '\u2655': 'Q', '\u2656': 'R', '\u2657': 'B', '\u2658': 'N',
+      '\u265a': 'K', '\u265b': 'Q', '\u265c': 'R', '\u265d': 'B', '\u265e': 'N'
+    };
+    var c0 = t.charAt(0);
+    if (fig[c0]) t = fig[c0] + t.slice(1);
+    return cleanSan(t);
+  }
+
+  /** Chuẩn hóa xâu kiểu "9... Qa7+" / "12.Kh8!?" → số nước, lượt, phần SAN còn lại. */
+  function parseAnnotationMoveNumber(text) {
+    text = String(text || '').trim();
+    if (!text) return { num: null, side: 'w', sanRaw: '' };
+    var num = null;
+    var side = 'w';
+    var mBlack = /^(\d+)\s*\.\.\.\s*/.exec(text);
+    if (mBlack) {
+      num = parseInt(mBlack[1], 10);
+      side = 'b';
+    } else {
+      var mWhite = /^(\d+)\s*\.\s*/.exec(text);
+      if (mWhite) {
+        num = parseInt(mWhite[1], 10);
+        side = 'w';
+      }
+    }
+    var sanPart = text.replace(/^\d+\s*\.\.\.\s*/i, '').replace(/^\d+\s*\.\s*/i, '').trim();
+    return { num: num, side: side, sanRaw: sanPart };
+  }
+
+  function sanFromAnnotationText(text) {
+    return asciiSanForEngine(parseAnnotationMoveNumber(text).sanRaw);
+  }
+
+  /** Figurine chỉ áp vào phần SAN (sau "9... " / "12."). */
+  function figurineAnnotatedPgnToken(annot) {
+    var t = String(annot || '').trim();
+    var m = t.match(/^(\d+\.\.\.\s*|\d+\.\s*)/);
+    var pre = '';
+    if (m) {
+      pre = m[1];
+      t = t.slice(m[0].length).trim();
+    }
+    return escapeHtml(pre + figurineSan(t));
+  }
+
+  function variationReplayStartChess(arr, moveRowHint) {
+    if (moveRowHint == null || !steps.length) return null;
+    var firstS = null;
+    for (var i = 0; i < arr.length; i++) {
+      if (arr[i] && arr[i].key === 'S' && arr[i].val) {
+        firstS = String(arr[i].val).trim();
+        break;
+      }
+    }
+    var side0 = firstS ? parseAnnotationMoveNumber(firstS).side : 'b';
+    var si = findStepIndexForMoveRowSide(moveRowHint, side0);
+    if (si == null) si = findStepIndexForMoveRowSide(moveRowHint, 'b');
+    if (si == null) si = findStepIndexForMoveRowSide(moveRowHint, 'w');
+    if (si == null) return null;
+    return new Chess(steps[si].fen);
+  }
+
+  function sideFromFen(fen) {
+    var p = (fen || '').trim().split(/\s+/);
+    return (p.length >= 2 && p[1] === 'b') ? 'b' : 'w';
+  }
+
+  function parseAltForRow(mv, side) {
+    if (!mv) return [];
+    var key = side === 'w' ? 'alt_white' : 'alt_black';
+    var raw = mv[key];
+    if (!raw || typeof raw !== 'string') return [];
+    try {
+      var a = JSON.parse(raw);
+      if (!Array.isArray(a)) return [];
+      var out = [];
+      for (var i = 0; i < a.length; i++) {
+        var s = cleanSan(String(a[i]));
+        if (s) out.push(s);
+      }
+      return out;
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function findStepIndexForMoveRowSide(moveRow, side) {
+    for (var i = 0; i < steps.length; i++) {
+      if (steps[i].moveRow === moveRow && steps[i].side === side) return i;
+    }
+    return null;
+  }
+
+  /**
+   * Export Chessable thường để SAN "trần" (không +/!) và ghi NAG ở annotation_white/black.
+   * Map gần với bảng NAG PGN (×10 một số API — thử cả n và Math.floor(n/10)).
+   */
+  function chessableAnnotationDisplaySuffix(code) {
+    var n = code | 0;
+    if (!n) return '';
+    var map = {
+      1: '!', 2: '?', 3: '!!', 4: '??', 5: '!?', 6: '?!',
+      10: '=', 11: '=', 12: '=', 13: '',
+      14: '±', 15: '∓', 16: '+-', 17: '-+', 18: '+-', 19: '-+'
+    };
+    return map[n] || '';
+  }
+
+  /** SAN hiển thị trong panel: chess.js m.san (thêm +/# chiếu) + hậu tố !?± từ annotation. */
+  function displayPlyTextForPanel(mv, moveRow, side) {
+    var raw = side === 'w' ? mv.move_white : mv.move_black;
+    raw = raw && String(raw).trim();
+    if (!raw) return '';
+    var sanOut = raw;
+    var si = findStepIndexForMoveRowSide(moveRow, side);
+    if (si != null && steps[si]) {
+      var g = new Chess(steps[si].fen);
+      var m = g.move(asciiSanForEngine(raw), { sloppy: true });
+      if (m && m.san) sanOut = m.san;
+    }
+    var acode = side === 'w' ? (mv.annotation_white | 0) : (mv.annotation_black | 0);
+    var nag = chessableAnnotationDisplaySuffix(acode);
+    if (!nag || sanOut.indexOf('#') !== -1) return sanOut;
+    if (sanOut.endsWith(nag)) return sanOut;
+    if (nag.length <= 2 && /[!?]{1,2}$/.test(sanOut.replace(/\+$/, ''))) {
+      if (nag === '!' || nag === '?' || nag === '!!' || nag === '??' || nag === '!?' || nag === '?!') {
+        return sanOut;
+      }
+    }
+    if ((nag === '+-' || nag === '-+') && /(\+-|-\+|±|∓)$/.test(sanOut)) return sanOut;
+    return sanOut + nag;
+  }
+
+  /** Tìm ô vua từ field bàn FEN (8 hàng). color: 'w'|'b' */
+  function kingSquareFromPieceField(place, color) {
+    if (!place) return null;
+    var rows = String(place).split('/');
+    if (rows.length !== 8) return null;
+    var files = 'abcdefgh';
+    for (var ri = 0; ri < 8; ri++) {
+      var row = rows[ri];
+      var fi = 0;
+      for (var ci = 0; ci < row.length; ci++) {
+        var ch = row.charAt(ci);
+        if (ch >= '1' && ch <= '8') fi += parseInt(ch, 10);
+        else {
+          var wantK = color === 'b' ? 'k' : 'K';
+          if (ch === wantK) return files[fi] + (8 - ri);
+          fi++;
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Chessable đôi khi vẽ bảng giống field "after" trong comment_black (vd. Vua đen đã ở g6)
+   * trong khi n.h / hợp lệ vẫn là "before" (vua g5 → Kg6). Trả về FEN hiển thị hoặc null.
+   */
+  function diagramFenForBlackStep(mv) {
+    var o = parseCoachCommentObject(mv);
+    if (!o) return null;
+    var after = o && o.after;
+    if (!after || typeof after !== 'string') return null;
+    var parts = after.trim().split(/\s+/);
+    if (parts.length < 6) return null;
+    parts[1] = 'b';
+    var g = new Chess();
+    if (!g.load(parts.join(' '))) return null;
+    return g.fen();
+  }
+
+  /**
+   * Bàn khi đang “xem” nước Trắng của hàng (vd. Kg8): dùng comment.before = sau Kg8, Vua đen chưa Kg6.
+   * Dùng comment.after cho Đen — nếu Trắng cũng dùng after thì hai bấm PGN giống hệt (chỉ khác lượt mà chessboard không vẽ).
+   */
+  function parseCoachCommentObject(mv) {
+    if (!mv) return null;
+    var fields = ['comment_black', 'comment_white', 'comment_before_black', 'comment_before_white'];
+    for (var fi = 0; fi < fields.length; fi++) {
+      var s = mv[fields[fi]];
+      if (!s || typeof s !== 'string') continue;
+      try {
+        var o = JSON.parse(s);
+        if (o && (o.before || o.after)) return o;
+      } catch (e) { /* skip */ }
+    }
+    return null;
+  }
+
+  function diagramFenForWhiteBrowseStep(mv) {
+    var o = parseCoachCommentObject(mv);
+    if (!o) return null;
+    var raw = o && typeof o.before === 'string' && o.before.trim() ? o.before : null;
+    if (!raw && o && typeof o.after === 'string') raw = o.after;
+    if (!raw || typeof raw !== 'string') return null;
+    var parts = raw.trim().split(/\s+/);
+    if (parts.length < 6) return null;
+    var g = new Chess();
+    if (!g.load(parts.join(' '))) return null;
+    return g.fen();
+  }
+
+  /** Bấm chú thích/PGN: hiển thị thế sau khi đi nước của bước đó (giống list move Chessable). ‹ › Hint: thế trước nước để làm bài. */
+  var panelBrowsePostMove = false;
+  /** Bấm nước chỉ có FEN biến thể (data-jump-fen): tắt highlight nước “training” trên bàn. */
+  var panelJumpSkipLastMoveHi = false;
+  /** Giá trị data-jump-fen (encodeURIComponent) của nước biến thể đang chọn — highlight xanh, bỏ xám main line. */
+  var panelBrowseEncFen = null;
+  /** Tô vàng from/to khi xem thế sau nước trong biến thể (data-jump-fen / data-last-*). */
+  var panelBrowseLastMove = null;
+
+  function fenAfterSanOn(fen, san) {
+    if (!fen || !san) return null;
+    var g = new Chess(fen);
+    if (!g.move(asciiSanForEngine(san), { sloppy: true })) return null;
+    return g.fen();
+  }
+
+  function effectiveBoardFenForDisplay(st) {
+    if (!st) return '';
+    if (panelBrowsePostMove && st.san) {
+      var aft = fenAfterSanOn(st.fen, st.san);
+      if (aft) return aft;
+    }
+    // Luôn thế *trước* nước của bước (st.fen). diagramFen từ comment thường là thế “sau”
+    // trong sơ đồ — dùng làm bàn làm bài khiến mở bài đã thấy nước đầu như đã đi (4.7, 4.8…).
+    return st.fen;
+  }
+
+  function trueFromForDiagramStep(st, from) {
+    if (!st) return from;
+    var disp = effectiveBoardFenForDisplay(st);
+    var pT = (st.fen || '').trim().split(/\s+/)[0];
+    var pD = (disp || '').trim().split(/\s+/)[0];
+    if (!pD || pD === pT) return from;
+    if (st.side === 'b') {
+      var kT = kingSquareFromPieceField(pT, 'b');
+      var kD = kingSquareFromPieceField(pD, 'b');
+      if (kT && kD && from === kD && kT !== kD) return kT;
+      return from;
+    }
+    if (st.side === 'w') {
+      var wT = kingSquareFromPieceField(pT, 'w');
+      var wD = kingSquareFromPieceField(pD, 'w');
+      if (wT && wD && from === wD && wT !== wD) return wT;
+      return from;
+    }
+    return from;
+  }
+
+  /**
+   * Ô gốc/đích nước cờ vừa tạo ra thế đang xem (khớp JSON + diagram).
+   * diagramFen + Trắng: bàn browse = sau move_white → highlight Kg8 (g7–g8).
+   * diagramFen + Đen: highlight move_black (vd. Kg6).
+   * Không diagram: nước ngay trước trong steps.
+   */
+  function computeLastMoveHighlight(stepIdx) {
+    if (stepIdx < 0 || stepIdx >= steps.length) return null;
+    /* Bước đầu lesson: chưa có “nước trước” trong line — tô vàng gây nhầm (diagram/st.fen). */
+    if (stepIdx === 0 && !panelBrowsePostMove) return null;
+    var st = steps[stepIdx];
+    var mv = moves[st.moveRow];
+    var g;
+    var m;
+    if (panelBrowsePostMove && st && st.san) {
+      g = new Chess(st.fen);
+      m = g.move(asciiSanForEngine(st.san), { sloppy: true });
+      if (m) return { from: m.from, to: m.to };
+    }
+    if (st.diagramFen && mv) {
+      if (st.side === 'w' && mv.move_white) {
+        g = new Chess(st.fen);
+        m = g.move(asciiSanForEngine(mv.move_white), { sloppy: true });
+        if (!m) return null;
+        return { from: m.from, to: m.to };
+      }
+      if (st.side === 'b' && mv.move_black) {
+        g = new Chess(st.fen);
+        m = g.move(asciiSanForEngine(mv.move_black), { sloppy: true });
+        if (!m) return null;
+        return { from: m.from, to: m.to };
+      }
+    }
+    if (stepIdx > 0) {
+      var pr = steps[stepIdx - 1];
+      g = new Chess(pr.fen);
+      m = g.move(asciiSanForEngine(pr.san), { sloppy: true });
+      if (m) return { from: m.from, to: m.to };
+    }
+    return null;
+  }
+
+  function updateLastMoveSquareClasses() {
+    var b = document.getElementById('board');
+    if (!b) return;
+    $(b).find('.square-55d63').removeClass('cb-last-from cb-last-to');
+    if (panelBrowseLastMove && panelBrowseLastMove.from && panelBrowseLastMove.to) {
+      $(b).find('.square-55d63[data-square="' + panelBrowseLastMove.from + '"]').addClass('cb-last-from');
+      $(b).find('.square-55d63[data-square="' + panelBrowseLastMove.to + '"]').addClass('cb-last-to');
+      return;
+    }
+    if (panelJumpSkipLastMoveHi) return;
+    if (!steps.length || stepIndex < 0 || stepIndex >= steps.length) return;
+    var lm = computeLastMoveHighlight(stepIndex);
+    if (!lm || !lm.from || !lm.to) return;
+    $(b).find('.square-55d63[data-square="' + lm.from + '"]').addClass('cb-last-from');
+    $(b).find('.square-55d63[data-square="' + lm.to + '"]').addClass('cb-last-to');
+  }
+
+  /** chessboard.js 1.x: chỉ nhận 8 hàng quân (field 1 của FEN), không truyền cả xâu 6 field. */
+  function fenPiecePlacementOnly(fen) {
+    if (fen == null || fen === '') return fen;
+    if (fen === 'start') return fen;
+    if (typeof fen !== 'string') return fen;
+    var p = fen.trim().split(/\s+/);
+    return (p[0] && p[0].indexOf('/') !== -1) ? p[0] : fen;
+  }
+
+  function chessableRowAnnotNum(st) {
+    var mv = moves[st.moveRow];
+    if (!mv) return null;
+    return (mv.fullMove0Based | 0) + 1;
+  }
+
+  function findStepByNotation(text) {
+    var p = parseAnnotationMoveNumber(String(text || '').trim());
+    var sanPart = asciiSanForEngine(p.sanRaw);
+    if (!sanPart) return null;
+    var num = p.num;
+    var side = p.side;
+    var candidates = [];
+    for (var i = 0; i < steps.length; i++) {
+      if (steps[i].side !== side) continue;
+      if (asciiSanForEngine(steps[i].san) !== sanPart) continue;
+      candidates.push(i);
+    }
+    if (candidates.length === 0) return null;
+    if (num == null) return candidates[candidates.length - 1];
+    for (var j = 0; j < candidates.length; j++) {
+      var idx = candidates[j];
+      var cn = chessableRowAnnotNum(steps[idx]);
+      if (cn === num) return idx;
+    }
+    return candidates[candidates.length - 1];
+  }
+
+  /** Highlight xám PGN: chỉ khi đang xem thế sau nước (bấm PGN/chú thích), không tô nước chưa đi ở bước luyện. */
+  function mainLinePgnCurrentClass(si) {
+    if (si == null) return '';
+    if (panelBrowseEncFen) return '';
+    return (panelBrowsePostMove && stepIndex === si) ? ' pgn-move--current' : '';
+  }
+
+  function dataLastMoveAttrsForStep(si) {
+    if (si == null || !steps[si]) return '';
+    var g0 = new Chess(steps[si].fen);
+    var mm = g0.move(asciiSanForEngine(steps[si].san), { sloppy: true });
+    if (!mm) return '';
+    return ' data-last-from="' + mm.from + '" data-last-to="' + mm.to + '"';
+  }
+
+  /**
+   * @param {string} str
+   * @param {boolean} [inlineChunk] — true khi là đoạn chữ trong biến thể (V): flow một dòng với .coach-move
+   */
+  function formatCoachPlain(str, inlineChunk) {
+    if (!str) return '';
+    var t = escapeHtml(str);
+    t = t.replace(/&lt;br\s*\/?&gt;/gi, '<br/>');
+    t = t.replace(/@@StartFEN@@([\s\S]*?)@@EndFEN@@/g, '<code class="coach-fen">$1</code>');
+    t = t.replace(/@@LinkStart@@([\s\S]*?)@@LinkEnd@@/g, function (_, url) {
+      var u = String(url || '').trim();
+      if (!/^https?:\/\//i.test(u)) return u;
+      return '<a class="coach-link" target="_blank" rel="noopener noreferrer" href="' +
+        u.replace(/&/g, '&amp;').replace(/"/g, '&quot;') + '">' + escapeHtml(u) + '</a>';
+    });
+    t = t.replace(/@@HeaderStart@@([\s\S]*?)@@HeaderEnd@@/g, function (_, title) {
+      return '<p class="coach-h">' + title + '</p>';
+    });
+    t = t.replace(/@@StartBlockQuote@@([\s\S]*?)@@EndBlockQuote@@/g, '<div class="coach-quote">$1</div>');
+    t = t.replace(/@@StartBracket@@/g, '(');
+    t = t.replace(/@@EndBracket@@/g, ')');
+    t = t.replace(/@@SANStart@@([a-h][1-8])@@SANEnd@@/gi, function (_, sq) {
+      return '<span class="coach-sq" data-square-focus="' + sq + '" role="button" tabindex="0">' + sq + '</span>';
+    });
+    var cls = inlineChunk ? 'coach-flow-chunk coach-flow-chunk--inline' : 'coach-flow-chunk';
+    return '<div class="' + cls + '">' + t + '</div>';
+  }
+
+  function findPrevSanNodeInVariation(arr, beforeIdx) {
+    for (var i = beforeIdx - 1; i >= 0; i--) {
+      var x = arr[i];
+      if (x && x.key === 'S' && typeof x.val === 'string') return x;
+    }
+    return null;
+  }
+
+  function findFirstSanNodeInVariation(arr) {
+    for (var i = 0; i < arr.length; i++) {
+      var x = arr[i];
+      if (x && x.key === 'S' && typeof x.val === 'string') return x;
+    }
+    return null;
+  }
+
+  /**
+   * Cùng số nước / cùng lượt (vd. hai nước Trắng thứ 2) nhưng SAN khác → nhánh trong key V lồng,
+   * cần replay từ FEN trước nước liền trước (vd. 2.Kf6 thay cho 2.Kf8 sau ...Qa7+).
+   */
+  function isSamePlyAlternative(prevAnnot, nextAnnot) {
+    if (!prevAnnot || !nextAnnot) return false;
+    var pa = parseAnnotationMoveNumber(String(prevAnnot).trim());
+    var fa = parseAnnotationMoveNumber(String(nextAnnot).trim());
+    if (pa.num === null || fa.num === null) return false;
+    if (pa.side !== fa.side) return false;
+    if (pa.num !== fa.num) return false;
+    return asciiSanForEngine(pa.sanRaw) !== asciiSanForEngine(fa.sanRaw);
+  }
+
+  /**
+   * Mảng node biến thể Chessable: S (nước), C (chữ), V (lồng). gStart null → bắt đầu từ variationReplayStartChess.
+   */
+  function renderCoachVariationArray(arr, moveRowHint, gStart) {
+    if (!arr || !arr.length) return '';
+    var gVar = gStart;
+    if (!gVar) gVar = variationReplayStartChess(arr, moveRowHint);
+    if (!gVar) return '';
+    var html = '';
+    var fenBeforeEachS = [];
+    for (var vi = 0; vi < arr.length; vi++) {
+      var sub = arr[vi];
+      if (!sub || typeof sub !== 'object') continue;
+      if (sub.key === 'S' && typeof sub.val === 'string') {
+        fenBeforeEachS.push(gVar.fen());
+        var sj = findStepByNotation(sub.val);
+        var dsp = figurineAnnotatedPgnToken(sub.val);
+        var attrs = '';
+        var varSel = '';
+        var useMain = false;
+        if (sj !== null && steps[sj]) {
+          var stJ = steps[sj];
+          if (fenSamePosition(stJ.fen, gVar.fen())) {
+            useMain = true;
+            attrs = ' data-jump-step="' + sj + '"';
+            var gJ = new Chess(stJ.fen);
+            var mJ = gJ.move(asciiSanForEngine(stJ.san), { sloppy: true });
+            if (mJ) attrs += ' data-last-from="' + mJ.from + '" data-last-to="' + mJ.to + '"';
+            var aftJ = fenAfterSanOn(stJ.fen, stJ.san);
+            if (aftJ) gVar = new Chess(aftJ);
+            if (panelBrowsePostMove && stepIndex === sj && !panelBrowseEncFen) varSel = ' pgn-move--var-current';
+          }
+        }
+        if (!useMain && gVar) {
+          var sanTry = sanFromAnnotationText(sub.val);
+          var gTry = new Chess(gVar.fen());
+          var mPl = gTry.move(sanTry, { sloppy: true });
+          if (mPl) {
+            gVar = gTry;
+            var enc = encodeURIComponent(gVar.fen());
+            attrs = ' data-jump-fen="' + enc + '" data-last-from="' + mPl.from + '" data-last-to="' + mPl.to + '"';
+            if (panelBrowseEncFen && enc === panelBrowseEncFen) varSel = ' pgn-move--var-current';
+          }
+        }
+        html += '<span tabindex="0" role="link" class="coach-move pgn-move' + varSel + '"' + attrs + '>' + dsp + '</span> ';
+      } else if (sub.key === 'C' && typeof sub.val === 'string') {
+        html += formatCoachPlain(sub.val, true);
+        html += ' ';
+      } else if (sub.key === 'V' && sub.val) {
+        var inner = Array.isArray(sub.val) ? sub.val : [sub.val];
+        var prevS = findPrevSanNodeInVariation(arr, vi);
+        var firstIn = findFirstSanNodeInVariation(inner);
+        var gNested = gVar;
+        if (prevS && firstIn && fenBeforeEachS.length &&
+          isSamePlyAlternative(prevS.val, firstIn.val)) {
+          gNested = new Chess(fenBeforeEachS[fenBeforeEachS.length - 1]);
+        } else if (gVar) {
+          gNested = new Chess(gVar.fen());
+        }
+        html += '<div class="coach-var-nested">' +
+          renderCoachVariationArray(inner, moveRowHint, gNested) + '</div>';
+      }
+    }
+    return html;
+  }
+
+  /**
+   * @param {string} raw
+   * @param {number} [moveRowHint] chỉ số hàng trong moves[] (cho khối V: replay biến thể → data-jump-fen)
+   */
+  function formatCommentJsonToHtml(raw, moveRowHint) {
+    if (!raw || !String(raw).trim()) return '';
+    var o;
+    try {
+      o = JSON.parse(raw);
+    } catch (e) {
+      return formatCoachPlain(String(raw));
+    }
+    var html = '';
+    var data = o && Array.isArray(o.data) ? o.data : [];
+    for (var di = 0; di < data.length; di++) {
+      var d = data[di];
+      if (!d || typeof d !== 'object') continue;
+      if (d.key === 'C' && typeof d.val === 'string') {
+        html += formatCoachPlain(d.val);
+      } else if (d.key === 'V' && d.val && typeof d.val === 'object') {
+        var arrV = Array.isArray(d.val) ? d.val : [d.val];
+        html += '<div class="coach-var">' + renderCoachVariationArray(arrV, moveRowHint, null) + '</div>';
+      }
+    }
+    return html;
+  }
+
+  function parseDrawingTag(tag) {
+    var m = /^(-?\d+)([wb])$/i.exec(String(tag || ''));
+    if (!m) return null;
+    return { n: parseInt(m[1], 10), side: m[2].toLowerCase() };
+  }
+
+  function rowPlyTag(mv, side) {
+    var w = mv.move_white && String(mv.move_white).trim();
+    var b = mv.move_black && String(mv.move_black).trim();
+    if (w && b) return (side === 'w' ? '1' : '2') + side;
+    return '1' + side;
+  }
+
+  function drawingTagMatches(tag, st, mv) {
+    var p = parseDrawingTag(tag);
+    if (!p || p.side !== st.side) return false;
+    if (tag === rowPlyTag(mv, st.side)) return true;
+    var glob = String((mv.fullMove0Based | 0) + 1) + st.side;
+    if (tag === glob) return true;
+    var fp = (mv.move_fen || '').trim().split(/\s+/);
+    if (fp.length >= 6 && fp[1] === st.side) {
+      if (String(fp[5]) + st.side === tag) return true;
+    }
+    if (tag === '-1' + st.side) return true;
+    return false;
+  }
+
+  function fenBoardAndTurn(fen) {
+    var p = (fen || '').trim().split(/\s+/);
+    return (p[0] || '') + '|' + (p[1] || '');
+  }
+
+  /** Cùng bàn + lượt (không so sánh đếm nửa nước) — khớp trước khi dùng data-jump-step từ line chính trong biến thể. */
+  function fenSamePosition(a, b) {
+    return fenBoardAndTurn(a) === fenBoardAndTurn(b);
+  }
+
+  /** Ô có quân trên bàn (FEN đủ 6 field); dùng để lọc mũi tên “ma” xuất phát từ ô trống trước nước (vd. 4.7 Qa7: a7 trống tới khi đi xong). */
+  function pieceOnSquareDisplay(fenFull, sq) {
+    if (!fenFull || !sq) return null;
+    try {
+      var g = new Chess(fenFull);
+      return g.get(sq);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /**
+   * Returns true only for the very first training position (before any move is played).
+   * We intentionally avoid showing move-tag drawings here because many lessons encode
+   * "hint drawings" on first ply tags (1w/1b) that should appear only after browsing/clicking.
+   */
+  function isInitialTrainingBoardState(st) {
+    return !!st &&
+      stepIndex === 0 &&
+      st.side === learnerSide &&
+      !panelBrowsePostMove &&
+      !panelBrowseEncFen;
+  }
+
+  /**
+   * Suppress shape when it references a currently empty source square on the displayed board.
+   * This prevents "ghost arrows/circles" caused by post-move tags rendered on pre-move board.
+   */
+  function suppressShapeForPreMoveLearnerBoard(st, sh) {
+    if (!sh || !sh.start) return false;
+    if (sh.object !== 'arrow' && sh.object !== 'circle') return false;
+    if (panelBrowsePostMove) return false;
+    if (!st || st.side !== learnerSide) return false;
+    /* Chỉ lọc ô trống ở bước 0 (vd. mũi a7–h7 trước Qa7 vào 4.7). Các bước sau vẫn hiện (vd. mũi a8–e4 cho ...Qa8+). */
+    if (stepIndex !== 0) return false;
+    var fenD = effectiveBoardFenForDisplay(st);
+    return !pieceOnSquareDisplay(fenD, sh.start);
+  }
+
+  function collectDrawShapes(st) {
+    if (!st) return [];
+    /* Bấm nước biến thể (xanh) chỉ để xem thế cờ: ẩn drawing của step hiện tại. */
+    if (panelBrowseEncFen) return [];
+    var mv = moves[st.moveRow];
+    if (!mv) return [];
+    var seen = {};
+    var out = [];
+    function add(it) {
+      var k = it.index || (it.object + '-' + (it.start || '') + '-' + (it.end || ''));
+      if (seen[k]) return;
+      seen[k] = true;
+      out.push(it);
+    }
+    function filterPush(arr, pred) {
+      if (!Array.isArray(arr)) return;
+      for (var i = 0; i < arr.length; i++) {
+        var it = arr[i];
+        if (it && it.object && pred(it)) add(it);
+      }
+    }
+    filterPush(mv.drawing_white, function (it) {
+      if (isInitialTrainingBoardState(st)) return false;
+      if (!drawingTagMatches(it.move, st, mv)) return false;
+      if (suppressShapeForPreMoveLearnerBoard(st, it)) return false;
+      return true;
+    });
+    filterPush(mv.drawing_black, function (it) {
+      if (isInitialTrainingBoardState(st)) return false;
+      if (!drawingTagMatches(it.move, st, mv)) return false;
+      if (suppressShapeForPreMoveLearnerBoard(st, it)) return false;
+      return true;
+    });
+    if (fenBoardAndTurn(st.fen) === fenBoardAndTurn(mv.move_fen) && Array.isArray(mv.drawing_initial)) {
+      filterPush(mv.drawing_initial, function (it) {
+        var t = String(it.move || '');
+        if (!(t.length >= 2 && t.charAt(0) === '0')) return false;
+        if (suppressShapeForPreMoveLearnerBoard(st, it)) return false;
+        return true;
+      });
+    }
+    return out;
+  }
+
+  function colorToCss(c) {
+    if (!c) return '#4a90d9';
+    var s = String(c);
+    if (s.charAt(0) === '#') return s;
+    var map = { r: '#d32f2f', g: '#43a047', b: '#1976d2' };
+    return map[s] || '#4a90d9';
+  }
+
+  function scheduleRedrawOverlay() {
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        updateLastMoveSquareClasses();
+        renderDrawings();
+      });
+    });
+  }
+
+  function afterBoardLayoutForOverlay() {
+    syncBoardAndProgressWidth();
+    if (board && typeof board.resize === 'function') board.resize();
+    scheduleRedrawOverlay();
+  }
+
+  function renderDrawings() {
+    var svg = document.getElementById('boardDrawLayer');
+    var wrap = document.getElementById('boardWrap');
+    var boardEl = document.getElementById('board');
+    if (!svg || !wrap || !board || !boardEl) {
+      if (svg) svg.innerHTML = '';
+      return;
+    }
+    if (stepIndex >= steps.length) {
+      svg.innerHTML = '';
+      return;
+    }
+    var st = steps[stepIndex];
+    var shapes = collectDrawShapes(st);
+    var wr = wrap.getBoundingClientRect();
+    var br = boardEl.getBoundingClientRect();
+    var svgW = Math.max(1, br.width);
+    var svgH = Math.max(1, br.height);
+    svg.style.left = (br.left - wr.left) + 'px';
+    svg.style.top = (br.top - wr.top) + 'px';
+    svg.setAttribute('width', String(svgW));
+    svg.setAttribute('height', String(svgH));
+    svg.style.width = svgW + 'px';
+    svg.style.height = svgH + 'px';
+    var ns = 'http://www.w3.org/2000/svg';
+    svg.innerHTML = '';
+
+    function center(sq) {
+      var cell = boardEl.querySelector('[data-square="' + sq + '"]');
+      if (!cell) return null;
+      var er = cell.getBoundingClientRect();
+      return {
+        x: er.left - br.left + er.width / 2,
+        y: er.top - br.top + er.height / 2,
+        cell: Math.min(er.width, er.height)
+      };
+    }
+    for (var i = 0; i < shapes.length; i++) {
+      var sh = shapes[i];
+      var stroke = colorToCss(sh.color);
+      if (sh.object === 'circle' && sh.start) {
+        var cc = center(sh.start);
+        if (!cc) continue;
+        var el = document.createElementNS(ns, 'circle');
+        el.setAttribute('cx', String(cc.x));
+        el.setAttribute('cy', String(cc.y));
+        el.setAttribute('r', String(cc.cell * 0.38 * 1.08 * 1.08));
+        el.setAttribute('fill', 'none');
+        el.setAttribute('stroke', stroke);
+        el.setAttribute('stroke-opacity', '0.95');
+        el.setAttribute('stroke-width', String(0.5 * Math.max(2.5, cc.cell * 0.07)));
+        el.setAttribute('stroke-linecap', 'round');
+        el.setAttribute('stroke-linejoin', 'round');
+        svg.appendChild(el);
+      } else if (sh.object === 'arrow' && sh.start && sh.end) {
+        var a = center(sh.start);
+        var b = center(sh.end);
+        if (!a || !b) continue;
+        var dx = b.x - a.x;
+        var dy = b.y - a.y;
+        var len = Math.sqrt(dx * dx + dy * dy) || 1;
+        var ux = dx / len;
+        var uy = dy / len;
+        var orthoTol = Math.max(1.5, a.cell * 0.08);
+        var isOrtho = Math.abs(dx) <= orthoTol || Math.abs(dy) <= orthoTol;
+        var shrinkA = a.cell * (isOrtho ? 0.28 : 0.38);
+        var shrinkB = b.cell * (isOrtho ? 0.31 : 0.4);
+        var x1 = a.x + ux * shrinkA;
+        var y1 = a.y + uy * shrinkA;
+        var tipX = b.x - ux * shrinkB;
+        var tipY = b.y - uy * shrinkB;
+        var headLen = Math.min(26, Math.max(11, a.cell * 0.36));
+        var headHalfW = headLen * 0.48;
+        var bx = tipX;
+        var by = tipY;
+        var baseX = bx - ux * headLen;
+        var baseY = by - uy * headLen;
+        var px = -uy;
+        var py = ux;
+        var p1x = baseX + px * headHalfW;
+        var p1y = baseY + py * headHalfW;
+        var p2x = baseX - px * headHalfW;
+        var p2y = baseY - py * headHalfW;
+        var lineEndX = baseX;
+        var lineEndY = baseY;
+        var shaftLen = Math.sqrt(
+          (lineEndX - x1) * (lineEndX - x1) + (lineEndY - y1) * (lineEndY - y1)
+        ) || 1;
+        var shaftExt = shaftLen * 0.07;
+        lineEndX += ux * shaftExt;
+        lineEndY += uy * shaftExt;
+        var line = document.createElementNS(ns, 'line');
+        line.setAttribute('x1', String(x1));
+        line.setAttribute('y1', String(y1));
+        line.setAttribute('x2', String(lineEndX));
+        line.setAttribute('y2', String(lineEndY));
+        line.setAttribute('stroke', stroke);
+        line.setAttribute('stroke-opacity', '0.9');
+        line.setAttribute('stroke-width', String(Math.max(2.4, a.cell * 0.062)));
+        line.setAttribute('stroke-linecap', 'round');
+        svg.appendChild(line);
+        var head = document.createElementNS(ns, 'polygon');
+        head.setAttribute('points', bx + ',' + by + ' ' + p1x + ',' + p1y + ' ' + p2x + ',' + p2y);
+        head.setAttribute('fill', stroke);
+        head.setAttribute('fill-opacity', '0.9');
+        head.setAttribute('stroke', stroke);
+        head.setAttribute('stroke-opacity', '0.75');
+        head.setAttribute('stroke-width', String(Math.max(0.85, a.cell * 0.018)));
+        head.setAttribute('stroke-linejoin', 'round');
+        svg.appendChild(head);
+      }
+    }
+  }
+
+  function findMatchingSan(fen, from, to, sansList) {
+    for (var i = 0; i < sansList.length; i++) {
+      var san = sansList[i];
+      if (!san) continue;
+      var g = new Chess(fen);
+      var m = g.move(asciiSanForEngine(san), { sloppy: true });
+      if (m && m.from === from && m.to === to) return san;
+    }
+    return null;
+  }
+
+  function rowCompletesLegally(gEndPrev, mv) {
+    var w = mv.move_white && String(mv.move_white).trim();
+    var b = mv.move_black && String(mv.move_black).trim();
+    var t = new Chess(gEndPrev.fen());
+    if (w && !t.move(asciiSanForEngine(w), { sloppy: true })) return false;
+    if (b && !t.move(asciiSanForEngine(b), { sloppy: true })) return false;
+    return true;
+  }
+
+  function firstMoverSide(mv) {
+    var w = mv.move_white && String(mv.move_white).trim();
+    var b = mv.move_black && String(mv.move_black).trim();
+    if (w) return 'w';
+    if (b) return 'b';
+    return 'w';
+  }
+
+  /** Export đôi khi để field lượt (w/b) lệch với nước đầu thật của hàng — chỉnh lại để trắng đi trước khi có move_white. */
+  function alignTurnToFirstMover(g, mv) {
+    var need = firstMoverSide(mv);
+    if (g.turn() === need) return g;
+    var parts = g.fen().split(/\s+/);
+    if (parts.length < 2) return g;
+    parts[1] = need;
+    var g2 = new Chess();
+    if (!g2.load(parts.join(' '))) return g;
+    return g2;
+  }
+
+  function buildSteps(movesArr) {
+    var stepsOut = [];
+    var finalFen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+    var r = 0;
+    var gPrevEnd = null;
+    for (var i = 0; i < movesArr.length; i++) {
+      var mv = movesArr[i];
+      var gFresh = new Chess();
+      try {
+        if (!gFresh.load(mv.move_fen)) throw new Error('load');
+      } catch (e) {
+        console.warn('Skip row ' + r, e);
+        r++;
+        continue;
+      }
+      var g;
+      if (gPrevEnd !== null && rowCompletesLegally(gPrevEnd, mv)) {
+        g = new Chess(gPrevEnd.fen());
+      } else {
+        g = gFresh;
+      }
+      g = alignTurnToFirstMover(g, mv);
+      var w = mv.move_white && String(mv.move_white).trim();
+      var b = mv.move_black && String(mv.move_black).trim();
+      if (w) {
+        var stepW = {
+          fen: g.fen(),
+          san: asciiSanForEngine(w),
+          moveRow: r,
+          side: 'w',
+          fullMove0Based: mv.fullMove0Based | 0,
+          altSans: parseAltForRow(mv, 'w')
+        };
+        var diaW = diagramFenForWhiteBrowseStep(mv);
+        if (diaW) {
+          var pTrueW = (stepW.fen || '').trim().split(/\s+/)[0];
+          var pDiaW = diaW.trim().split(/\s+/)[0];
+          if (pDiaW && pDiaW !== pTrueW) stepW.diagramFen = diaW;
+        }
+        stepsOut.push(stepW);
+        if (!g.move(asciiSanForEngine(w), { sloppy: true })) console.warn('SAN W bad', w, 'row', r);
+      }
+      if (b) {
+        var stepB = {
+          fen: g.fen(),
+          san: asciiSanForEngine(b),
+          moveRow: r,
+          side: 'b',
+          fullMove0Based: mv.fullMove0Based | 0,
+          altSans: parseAltForRow(mv, 'b')
+        };
+        var dia = diagramFenForBlackStep(mv);
+        var pTrue = (stepB.fen || '').trim().split(/\s+/)[0];
+        var pDia = dia ? (dia.trim().split(/\s+/)[0]) : '';
+        if (dia && pDia && pDia !== pTrue) stepB.diagramFen = dia;
+        stepsOut.push(stepB);
+        if (!g.move(asciiSanForEngine(b), { sloppy: true })) console.warn('SAN B bad', b, 'row', r);
+      }
+      finalFen = g.fen();
+      gPrevEnd = new Chess(g.fen());
+      r++;
+    }
+    return { steps: stepsOut, finalFen: finalFen };
+  }
+
+  /** chessboard.js .fen() thường chỉ có xâu bàn (1 field); chess.js cần đủ 6 field. */
+  function boardPlacementFen() {
+    if (!board || typeof board.fen !== 'function') return '';
+    var raw = board.fen();
+    if (!raw) return '';
+    return raw.trim().split(/\s+/)[0] || '';
+  }
+
+  /** Đồng bộ game theo st.fen (thế hợp lệ trước nước), không lấy quân từ bàn — tránh lệch khi có diagramFen. */
+  function syncGameFromBoardAndStep(st) {
+    if (!st) return;
+    var p = (st.fen || '').trim().split(/\s+/);
+    var place = p[0] || '';
+    if (!place) {
+      game = new Chess(p.length >= 6 ? p.join(' ') : undefined);
+      return;
+    }
+    var active = st.side === 'b' ? 'b' : 'w';
+    var c2 = (p.length >= 6 && p[2]) ? p[2] : '-';
+    var c3 = (p.length >= 6 && p[3]) ? p[3] : '-';
+    var hm = (p.length >= 6 && p[4] !== undefined) ? p[4] : '0';
+    var fn = (p.length >= 6 && p[5] !== undefined) ? p[5] : '1';
+    var full = [place, active, c2, c3, hm, fn].join(' ');
+    game = new Chess();
+    if (!game.load(full)) {
+      full = [place, active, '-', '-', '0', '1'].join(' ');
+      game.load(full);
+    }
+  }
+
+  function dropMatchesExpected(st, from, to) {
+    syncGameFromBoardAndStep(st);
+    var fenBase = game.fen();
+    var list = [st.san].concat(st.altSans || []);
+    return !!findMatchingSan(fenBase, from, to, list);
+  }
+
+  var learnerSide = 'w';
+  var lastBoardTouchTs = 0;
+
+  /** Đi các nước phe đối phương — luôn xuất phát từ game.fen() (bàn thật), không từ ost.fen export. */
+  function playThroughOpponentPlies() {
+    while (stepIndex < steps.length && steps[stepIndex].side !== learnerSide) {
+      var ost = steps[stepIndex];
+      var gAuto = new Chess(game.fen());
+      if (!gAuto.move(asciiSanForEngine(ost.san), { sloppy: true })) {
+        console.warn('Nước auto lỗi SAN', ost.san, game.fen());
+        stepIndex++;
+        continue;
+      }
+      game = gAuto;
+      board.orientation(studyOrientation);
+      board.position(fenPiecePlacementOnly(game.fen()));
+      stepIndex++;
+    }
+  }
+
+  function finishAdvanceAfterStep() {
+    clickSource = null;
+    $('#board .square-55d63').removeClass('cb-sel');
+    playThroughOpponentPlies();
+    if (stepIndex < steps.length) {
+      applyLessonState({ keepBoardFromChessboard: true });
+    } else {
+      applyLessonState({ preserveGameAtCompletion: true });
+    }
+  }
+
+  /** Hint / › : áp nước đúng của bước hiện tại lên bàn rồi tăng index. */
+  function advanceLineOneStep() {
+    panelBrowsePostMove = false;
+    panelJumpSkipLastMoveHi = false;
+    panelBrowseEncFen = null;
+    panelBrowseLastMove = null;
+    if (steps.length === 0 || stepIndex >= steps.length) return;
+    var st = steps[stepIndex];
+    syncGameFromBoardAndStep(st);
+    var gH = new Chess(game.fen());
+    if (!gH.move(asciiSanForEngine(st.san), { sloppy: true })) {
+      console.warn('advanceLineOneStep: không đi được SAN', st.san);
+      return;
+    }
+    game = gH;
+    board.position(fenPiecePlacementOnly(game.fen()));
+    stepIndex++;
+    finishAdvanceAfterStep();
+  }
+
+  var lessonsByOid = null;
+  var explorer = null;
+  var board = null;
+  var game = null;
+  var moves = [];
+  var steps = [];
+  var stepIndex = 0;
+  var finalFen = '';
+  var studyOrientation = 'white';
+  var clickSource = null;
+  var lessonTitleStr = '';
+  var studyMode = 'learn';
+
+  function getBoardWidthPx() {
+    var lw = document.getElementById('lesson-work');
+    if (lw && lw.clientWidth > 80) {
+      var pr = document.getElementById('panel-right');
+      var rightW = pr ? pr.getBoundingClientRect().width : 300;
+      var avail = lw.clientWidth - rightW - 28;
+      var h = window.innerHeight - 52 - 220;
+      var side = Math.floor(Math.min(avail, h, 720));
+      return Math.max(280, side);
+    }
+    return Math.max(280, Math.floor(Math.min(window.innerWidth - 340, window.innerHeight - 220, 720)));
+  }
+
+  function syncBoardAndProgressWidth() {
+    var px = getBoardWidthPx();
+    var bw = document.getElementById('boardWrap');
+    var b = document.getElementById('board');
+    var wrap = document.querySelector('#board-column .progress-wrap');
+    if (bw) bw.style.width = px + 'px';
+    if (b) b.style.width = px + 'px';
+    if (wrap) wrap.style.width = px + 'px';
+  }
+
+  var COACH_COMMENT_BEFORE = ['comment_before_white', 'comment_before_black'];
+  var COACH_COMMENT_AFTER = ['comment_white', 'comment_black'];
+
+  function moveRowHasAnyCommentFields(mv, fieldList) {
+    if (!mv) return false;
+    for (var ii = 0; ii < fieldList.length; ii++) {
+      var v = mv[fieldList[ii]];
+      if (v && String(v).trim()) return true;
+    }
+    return false;
+  }
+
+  function moveRowAllCoachCommentsEmpty(mv) {
+    return !moveRowHasAnyCommentFields(mv, COACH_COMMENT_BEFORE) &&
+      !moveRowHasAnyCommentFields(mv, COACH_COMMENT_AFTER);
+  }
+
+  /**
+   * Tách 2 dòng PGN (Trắng rồi Đen) chỉ khi comment_white có đoạn chữ (C) xen giữa — vd. 4.7 f8=Q rồi chữ rồi ...Qh7#.
+   * Nếu comment_white chỉ/đầu là khối biến thể (V) sau cả cặp nước — vd. 4.9 sau Ke8+Qa8+ — giữ một dòng.
+   */
+  function shouldSplitPgnRowForWhiteComment(mv) {
+    if (!mv || !moveRowHasAnyCommentFields(mv, ['comment_white'])) return false;
+    var rw = mv.move_white && String(mv.move_white).trim();
+    var rb = mv.move_black && String(mv.move_black).trim();
+    if (!rw || !rb) return false;
+    var raw = mv.comment_white;
+    if (!raw || !String(raw).trim()) return false;
+    try {
+      var o = JSON.parse(String(raw));
+      var data = o && Array.isArray(o.data) ? o.data : [];
+      for (var i = 0; i < data.length; i++) {
+        var d = data[i];
+        if (!d || typeof d !== 'object') continue;
+        if (d.key === 'V') return false;
+        if (d.key === 'C' && typeof d.val === 'string' && String(d.val).trim()) return true;
+      }
+    } catch (e) {
+      return true;
+    }
+    return false;
+  }
+
+  function htmlCoachCommentFields(mi, fieldNames) {
+    var mv = moves[mi];
+    if (!mv) return '';
+    var out = '';
+    for (var fi = 0; fi < fieldNames.length; fi++) {
+      var raw = mv[fieldNames[fi]];
+      if (!raw) continue;
+      var chunk = formatCommentJsonToHtml(String(raw), mi);
+      if (!chunk) continue;
+      out += '<div class="coach-flow-piece"><div class="coach-body">' + chunk + '</div></div>';
+    }
+    return out;
+  }
+
+  /** Đóng buffer các dòng PGN đã gom (nhiều hàng liên tiếp không có comment_after). */
+  function coachPgnFlushAccumulated(linesArr) {
+    if (!linesArr.length) return '';
+    var inner = linesArr.join('');
+    linesArr.length = 0;
+    return '<div class="coach-flow-piece coach-flow-piece--pgn"><div class="coach-pgn-cluster">' + inner + '</div></div>';
+  }
+
+  /**
+   * PGN line chính một hàng moves[] — bấm như thanh PGN cũ; nhúng sau chú thích cùng hàng.
+   */
+  function buildInlinePgnRowTokens(r) {
+    var m = moves[r];
+    if (!m) return '';
+    var w = m.move_white && String(m.move_white).trim();
+    var b = m.move_black && String(m.move_black).trim();
+    if (!w && !b) return '';
+    var parts = [];
+    if (w && b) {
+      var fmW = pgnDisplayNumberForRowSide(r, 'w');
+      parts.push('<span class="pgn-no">' + fmW + '.</span> ');
+      var siw = findStepIndexForMoveRowSide(r, 'w');
+      var cw = mainLinePgnCurrentClass(siw);
+      var aw = (siw !== null ? ' data-jump-step="' + siw + '"' : '') + dataLastMoveAttrsForStep(siw);
+      parts.push('<span tabindex="0" role="link" class="pgn-move' + cw + '"' + aw + '>' +
+        escapeHtml(figurineSan(displayPlyTextForPanel(m, r, 'w'))) + '</span> ');
+      var sib = findStepIndexForMoveRowSide(r, 'b');
+      var cb = mainLinePgnCurrentClass(sib);
+      var ab = (sib !== null ? ' data-jump-step="' + sib + '"' : '') + dataLastMoveAttrsForStep(sib);
+      parts.push('<span tabindex="0" role="link" class="pgn-move' + cb + '"' + ab + '>' +
+        escapeHtml(figurineSan(displayPlyTextForPanel(m, r, 'b'))) + '</span>');
+    } else if (w) {
+      parts.push('<span class="pgn-no">' + pgnDisplayNumberForRowSide(r, 'w') + '.</span> ');
+      var siw2 = findStepIndexForMoveRowSide(r, 'w');
+      parts.push('<span tabindex="0" role="link" class="pgn-move' + mainLinePgnCurrentClass(siw2) + '"' +
+        (siw2 !== null ? ' data-jump-step="' + siw2 + '"' : '') + dataLastMoveAttrsForStep(siw2) + '>' +
+        escapeHtml(figurineSan(displayPlyTextForPanel(m, r, 'w'))) + '</span>');
+    } else if (b) {
+      parts.push('<span class="pgn-no">' + pgnDisplayNumberForRowSide(r, 'b') + '...</span> ');
+      var sib2 = findStepIndexForMoveRowSide(r, 'b');
+      parts.push('<span tabindex="0" role="link" class="pgn-move' + mainLinePgnCurrentClass(sib2) + '"' +
+        (sib2 !== null ? ' data-jump-step="' + sib2 + '"' : '') + dataLastMoveAttrsForStep(sib2) + '>' +
+        escapeHtml(figurineSan(displayPlyTextForPanel(m, r, 'b'))) + '</span>');
+    }
+    return parts.join('');
+  }
+
+  function buildInlinePgnRowHtml(r) {
+    var tok = buildInlinePgnRowTokens(r);
+    if (!tok) return '';
+    return '<div class="pgn-line coach-pgn-row coach-pgn-row--full">' + tok + '</div>';
+  }
+
+  /**
+   * Một nửa hàng (chỉ Trắng hoặc chỉ Đen) — chỉ dùng khi có comment_white để chèn giữa hai nửa (vd. 4.7).
+   */
+  function buildInlinePgnRowPartHtml(r, part) {
+    var m = moves[r];
+    if (!m) return '';
+    var w = m.move_white && String(m.move_white).trim();
+    var b = m.move_black && String(m.move_black).trim();
+    if (part === 'w' && !w) return '';
+    if (part === 'b' && !b) return '';
+    var parts = [];
+    if (part === 'w') {
+      parts.push('<span class="pgn-no">' + pgnDisplayNumberForRowSide(r, 'w') + '.</span> ');
+      var siw = findStepIndexForMoveRowSide(r, 'w');
+      parts.push('<span tabindex="0" role="link" class="pgn-move' + mainLinePgnCurrentClass(siw) + '"' +
+        (siw !== null ? ' data-jump-step="' + siw + '"' : '') + dataLastMoveAttrsForStep(siw) + '>' +
+        escapeHtml(figurineSan(displayPlyTextForPanel(m, r, 'w'))) + '</span>');
+    } else {
+      parts.push('<span class="pgn-no">' + pgnDisplayNumberForRowSide(r, 'b') + '...</span> ');
+      var sib = findStepIndexForMoveRowSide(r, 'b');
+      parts.push('<span tabindex="0" role="link" class="pgn-move' + mainLinePgnCurrentClass(sib) + '"' +
+        (sib !== null ? ' data-jump-step="' + sib + '"' : '') + dataLastMoveAttrsForStep(sib) + '>' +
+        escapeHtml(figurineSan(displayPlyTextForPanel(m, r, 'b'))) + '</span>');
+    }
+    return '<div class="pgn-line coach-pgn-row coach-pgn-row--half">' + parts.join('') + '</div>';
+  }
+
+  /**
+   * Toàn bộ chú thích lesson: before_* (hàng mở đầu segment) → xen kẽ [dòng PGN hàng r] + [comment_after r]
+   * khi có chú thích sau nước thì flush cụm PGN đã gom (các hàng liên tiếp không có after).
+   * Tránh đẩy toàn bộ comment_after xuống sau cả khối PGN (lệch so với Chessable, vd. 4.7).
+   * Hàng có cả move_white và move_black: tách hai dòng PGN, chèn comment_white rồi mới nửa Đen + comment_black.
+   */
+  function buildAllCoachSectionsHtml() {
+    var html = '';
+    var mi = 0;
+    while (mi < moves.length) {
+      var mv = moves[mi];
+      if (!mv) {
+        mi++;
+        continue;
+      }
+      if (mv.opening_name && mv.opening_name !== lessonTitleStr) {
+        html += '<div class="line-opening-title">' + escapeHtml(mv.opening_name) + '</div>';
+      }
+      html += htmlCoachCommentFields(mi, COACH_COMMENT_BEFORE);
+
+      var pgnEnd = mi;
+      while (pgnEnd + 1 < moves.length && moveRowAllCoachCommentsEmpty(moves[pgnEnd + 1])) {
+        pgnEnd++;
+      }
+
+      var pgnBuf = [];
+      var deferredAfterChunks = [];
+      for (var r = mi; r <= pgnEnd; r++) {
+        var mvR = moves[r];
+        var rw = mvR && mvR.move_white && String(mvR.move_white).trim();
+        var rb = mvR && mvR.move_black && String(mvR.move_black).trim();
+        var splitForWhiteComment = rw && rb && shouldSplitPgnRowForWhiteComment(mvR);
+        if (splitForWhiteComment) {
+          html += coachPgnFlushAccumulated(pgnBuf);
+          for (var dFlush = 0; dFlush < deferredAfterChunks.length; dFlush++) {
+            html += deferredAfterChunks[dFlush];
+          }
+          deferredAfterChunks.length = 0;
+          var lineW = buildInlinePgnRowPartHtml(r, 'w');
+          if (lineW) pgnBuf.push(lineW);
+          var chunkW = htmlCoachCommentFields(r, ['comment_white']);
+          if (chunkW) {
+            html += coachPgnFlushAccumulated(pgnBuf);
+            html += chunkW;
+          }
+          var lineB = buildInlinePgnRowPartHtml(r, 'b');
+          if (lineB) pgnBuf.push(lineB);
+          var chunkB = htmlCoachCommentFields(r, ['comment_black']);
+          if (chunkB) {
+            html += coachPgnFlushAccumulated(pgnBuf);
+            html += chunkB;
+          }
+        } else {
+          /* Gộp "hàng chỉ Đen" + "hàng kế có Trắng/Đen" thành một dòng: 5...Kc6! 6.f8=Q Qd7#. */
+          if (rb && !rw && (r + 1) <= pgnEnd) {
+            var mvN = moves[r + 1];
+            var nW = mvN && mvN.move_white && String(mvN.move_white).trim();
+            var nB = mvN && mvN.move_black && String(mvN.move_black).trim();
+            var nSplit = mvN && nW && nB && shouldSplitPgnRowForWhiteComment(mvN);
+            var hasAfterNow = moveRowHasAnyCommentFields(mvR, COACH_COMMENT_AFTER) || moveRowHasAnyCommentFields(mvN, COACH_COMMENT_AFTER);
+            if (nW && nB && !nSplit && !hasAfterNow) {
+              var tok1 = buildInlinePgnRowTokens(r);
+              var tok2 = buildInlinePgnRowTokens(r + 1);
+              if (tok1 && tok2) {
+                pgnBuf.push('<div class="pgn-line coach-pgn-row coach-pgn-row--full">' + tok1 + ' ' + tok2 + '</div>');
+                r++;
+                continue;
+              }
+            }
+          }
+          var rowPgn = buildInlinePgnRowHtml(r);
+          if (rowPgn) pgnBuf.push(rowPgn);
+          var cw = htmlCoachCommentFields(r, ['comment_white']);
+          var cb = htmlCoachCommentFields(r, ['comment_black']);
+          if (cw) deferredAfterChunks.push(cw);
+          if (cb) deferredAfterChunks.push(cb);
+        }
+      }
+      html += coachPgnFlushAccumulated(pgnBuf);
+      for (var dLast = 0; dLast < deferredAfterChunks.length; dLast++) {
+        html += deferredAfterChunks[dLast];
+      }
+
+      mi = pgnEnd + 1;
+    }
+    return html;
+  }
+
+  function panelHtmlForStaticLesson() {
+    var html = buildAllCoachSectionsHtml();
+    if (!html) {
+      html = '<p class="review-prompt">Không có chú thích trong export cho bài này.</p>';
+    }
+    return html;
+  }
+
+  function pgnDisplayNumberForRowSide(r, side) {
+    var m = moves[r];
+    if (!m) return 1;
+    return (m.fullMove0Based | 0) + 1;
+  }
+
+  function bindPanelJumps() {
+  }
+
+  function panelHtmlForStep(st) {
+    var html = '<p class="turn-line">' + (st.side === 'w' ? 'White to play!' : 'Black to play!') + '</p>';
+    var body = buildAllCoachSectionsHtml();
+    if (!body) {
+      body = '<p class="review-prompt">Không có chú thích trong export cho bài này.</p>';
+    }
+    html += '<div class="coach-all">' + body + '</div>';
+    return html;
+  }
+
+  function setStudyMode(mode) {
+    studyMode = mode === 'review' ? 'review' : 'learn';
+    document.querySelectorAll('#topTabs .tab-mode').forEach(function (el) {
+      var on = el.getAttribute('data-mode') === studyMode;
+      el.classList.toggle('active', on);
+      el.classList.toggle('inactive', !on);
+    });
+    if (board && document.getElementById('phaseLine')) {
+      applyLessonState({ uiOnly: true });
+    }
+  }
+
+  function wireTopTabs() {
+    document.querySelectorAll('#topTabs .tab-mode').forEach(function (el) {
+      el.addEventListener('click', function () {
+        setStudyMode(el.getAttribute('data-mode'));
+      });
+      el.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          setStudyMode(el.getAttribute('data-mode'));
+        }
+      });
+    });
+  }
+
+  function loadJson(url) {
+    return fetch(url, { cache: 'no-store' }).then(function (r) {
+      if (!r.ok) throw new Error(r.status + ' ' + url);
+      return r.json();
+    });
+  }
+
+  function escapeHtml(s) {
+    var d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  function figurineSan(s) {
+    if (!s) return s;
+    var u = String(s);
+    var map = { K: '\u2654', Q: '\u2655', R: '\u2656', B: '\u2657', N: '\u2658' };
+    var c0 = u.charAt(0);
+    if (map[c0]) return map[c0] + u.slice(1);
+    return u;
+  }
+
+  function showErr(msg) {
+    document.getElementById('main').innerHTML = '<div class="err">' + escapeHtml(msg) + '</div>';
+  }
+
+  function stepLabel() {
+    if (steps.length === 0) {
+      return 'Bài chỉ có nội dung — không có nước luyện trên bàn.';
+    }
+    if (stepIndex >= steps.length) {
+      return 'Hoàn thành line · « để làm lại.';
+    }
+    var st = steps[stepIndex];
+    var side = st.side === 'w' ? 'Trắng' : 'Đen';
+    var altN = (st.altSans && st.altSans.length) || 0;
+    var altHint = altN ? ' · thêm ' + altN + ' nước phụ hợp lệ' : '';
+    if (st.side !== learnerSide) {
+      return 'Bước ' + (stepIndex + 1) + '/' + steps.length + ' · ' + side + ' (đối phương) — nước: ' + st.san + altHint +
+        ' · bấm › hoặc 💡 để đi tiếp';
+    }
+    return 'Bước ' + (stepIndex + 1) + '/' + steps.length + ' · ' + side + ' — nước đúng: ' + st.san + altHint +
+      ' (bấm ô xuất phát, rồi bấm ô đích)';
+  }
+
+  function renderRightPanel() {
+    var body = document.getElementById('panelBody');
+    var head = document.getElementById('panelLessonTitle');
+    if (!body || !head) return;
+    head.textContent = lessonTitleStr || 'Lesson';
+
+    if (steps.length === 0) {
+      if (studyMode === 'review') {
+        body.innerHTML = '<p class="review-prompt">Không có nước để luyện — chuyển Learn để đọc nội dung.</p>';
+      } else {
+        body.innerHTML = panelHtmlForStaticLesson();
+      }
+      bindPanelJumps();
+      return;
+    }
+
+    if (stepIndex >= steps.length) {
+      if (studyMode === 'review' && steps.length > 0) {
+        var lastSt = steps[steps.length - 1];
+        body.innerHTML = '<p class="done-msg">Hoàn thành line — chú thích và gợi ý:</p>' +
+          panelHtmlForStep(lastSt);
+      } else {
+        body.innerHTML = '<p class="done-msg">Đã hết nước trong line.</p>';
+      }
+      bindPanelJumps();
+      return;
+    }
+    if (studyMode === 'review') {
+      body.innerHTML = '<p class="review-prompt">Review: không hiển thị chú thích hoặc nước đúng. Làm đủ line để xem.</p>';
+      bindPanelJumps();
+      return;
+    }
+    body.innerHTML = panelHtmlForStep(steps[stepIndex]);
+    bindPanelJumps();
+  }
+
+  function updateProgress() {
+    var pct = 0;
+    if (steps.length === 0) {
+      pct = 100;
+    } else if (steps.length > 0) {
+      pct = Math.round((stepIndex / steps.length) * 100);
+      if (stepIndex >= steps.length) pct = 100;
+    }
+    var bar = document.getElementById('progressBar');
+    if (bar) bar.style.width = pct + '%';
+  }
+
+  function applyLessonState(opts) {
+    opts = opts || {};
+    if (opts.uiOnly) {
+      if (!board) return;
+      renderRightPanel();
+      var plu = document.getElementById('phaseLine');
+      if (plu) {
+        var hideU = studyMode === 'review' && steps.length > 0 && stepIndex < steps.length;
+        plu.style.display = hideU ? 'none' : '';
+        plu.textContent = hideU ? '' : stepLabel();
+      }
+      bindPanelJumps();
+      updateProgress();
+      afterBoardLayoutForOverlay();
+      return;
+    }
+
+    if (steps.length === 0) {
+      game = new Chess();
+      try { game.load(finalFen); } catch (e) { console.warn(e); }
+      board.position(fenPiecePlacementOnly(game.fen()));
+      board.orientation(studyOrientation);
+      clickSource = null;
+      $('#board .square-55d63').removeClass('cb-sel');
+      renderRightPanel();
+      var plz = document.getElementById('phaseLine');
+      if (plz) {
+        plz.style.display = '';
+        plz.textContent = stepLabel();
+      }
+      bindPanelJumps();
+      updateProgress();
+      afterBoardLayoutForOverlay();
+      return;
+    }
+
+    if (stepIndex >= steps.length) {
+      if (opts.preserveGameAtCompletion && game && typeof game.fen === 'function') {
+        board.position(fenPiecePlacementOnly(game.fen()));
+      } else {
+        game = new Chess();
+        try { game.load(finalFen); } catch (e) { console.warn(e); }
+        board.position(fenPiecePlacementOnly(game.fen()));
+      }
+    } else {
+      var stApply = steps[stepIndex];
+      if (opts.keepBoardFromChessboard) {
+        syncGameFromBoardAndStep(stApply);
+        board.position(fenPiecePlacementOnly(effectiveBoardFenForDisplay(stApply)));
+      } else {
+        game = new Chess(stApply.fen);
+        syncGameFromBoardAndStep(stApply);
+        board.position(fenPiecePlacementOnly(effectiveBoardFenForDisplay(stApply)));
+      }
+    }
+    board.orientation(studyOrientation);
+    clickSource = null;
+    $('#board .square-55d63').removeClass('cb-sel');
+    renderRightPanel();
+    var pl = document.getElementById('phaseLine');
+    if (pl) {
+      var hidePhase = studyMode === 'review' && stepIndex < steps.length;
+      pl.style.display = hidePhase ? 'none' : '';
+      pl.textContent = hidePhase ? '' : stepLabel();
+    }
+    bindPanelJumps();
+    updateProgress();
+    afterBoardLayoutForOverlay();
+  }
+
+  function stepBack() {
+    if (steps.length === 0 || stepIndex <= 0) return;
+    panelBrowsePostMove = false;
+    panelJumpSkipLastMoveHi = false;
+    panelBrowseEncFen = null;
+    panelBrowseLastMove = null;
+    stepIndex--;
+    applyLessonState();
+  }
+
+  function playExpectedMove() {
+    advanceLineOneStep();
+  }
+
+  function goStart() {
+    panelBrowsePostMove = false;
+    panelJumpSkipLastMoveHi = false;
+    panelBrowseEncFen = null;
+    panelBrowseLastMove = null;
+    stepIndex = 0;
+    clickSource = null;
+    $('#board .square-55d63').removeClass('cb-sel');
+    applyLessonState();
+  }
+
+  function goEnd() {
+    panelBrowsePostMove = false;
+    panelJumpSkipLastMoveHi = false;
+    panelBrowseEncFen = null;
+    panelBrowseLastMove = null;
+    stepIndex = steps.length;
+    applyLessonState({ preserveGameAtCompletion: false });
+  }
+
+  function buildMainTemplate(title, meta) {
+    lessonTitleStr = title;
+    document.getElementById('main').innerHTML =
+      '<div id="lesson-work">' +
+      '<div id="board-column">' +
+      '<div class="board-toolbar">' +
+      '<button type="button" id="btnStart" title="Đầu">«</button>' +
+      '<button type="button" id="btnPrev" title="Lùi">‹</button>' +
+      '<button type="button" class="primary" id="btnHint">💡 Hint</button>' +
+      '<button type="button" id="btnNext" title="Nước đúng">›</button>' +
+      '<button type="button" id="btnEnd" title="Cuối">»</button>' +
+      '<button type="button" id="btnFlip">Lật bàn</button>' +
+      '</div>' +
+      '<div class="board-wrap" id="boardWrap">' +
+      '<div id="board"></div>' +
+      '<svg class="board-draw-layer" id="boardDrawLayer" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"></svg>' +
+      '</div>' +
+      '<div class="progress-wrap"><div class="progress-bar" id="progressBar"></div></div>' +
+      '<div class="phase-badge" id="phaseLine"></div>' +
+      '</div>' +
+      '<div id="panel-right">' +
+      '<div class="panel-head" id="panelLessonTitle"></div>' +
+      '<div class="panel-body" id="panelBody"></div>' +
+      '</div>' +
+      '</div>' +
+      '<p style="display:none" id="metaHidden">' + meta + '</p>';
+    document.getElementById('panelLessonTitle').textContent = title;
+  }
+
+  function isPieceTurn(code, turn) {
+    if (!code) return false;
+    return (turn === 'w' && code.indexOf('w') === 0) || (turn === 'b' && code.indexOf('b') === 0);
+  }
+
+  function squareFromEventTarget(target) {
+    if (!target || !target.closest) return null;
+    var cell = target.closest('[data-square]');
+    if (!cell) return null;
+    return cell.getAttribute('data-square') || null;
+  }
+
+  function applyLearnerMoveIfValid(st, fromTrue, toSq) {
+    if (!dropMatchesExpected(st, fromTrue, toSq)) return false;
+    var list = [st.san].concat(st.altSans || []);
+    var matched = findMatchingSan(game.fen(), fromTrue, toSq, list);
+    if (!matched) return false;
+    var gUser = new Chess(game.fen());
+    if (!gUser.move(asciiSanForEngine(matched), { sloppy: true })) return false;
+    panelBrowsePostMove = false;
+    panelBrowseEncFen = null;
+    panelBrowseLastMove = null;
+    game = gUser;
+    board.position(fenPiecePlacementOnly(game.fen()));
+    clickSource = null;
+    $('#board .square-55d63').removeClass('cb-sel');
+    stepIndex++;
+    finishAdvanceAfterStep();
+    return true;
+  }
+
+  function handleBoardSquarePointer(ev) {
+    if (!board || steps.length === 0 || stepIndex >= steps.length) return;
+    var sq = squareFromEventTarget(ev.target);
+    if (!sq) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    var st = steps[stepIndex];
+    if (st.side !== learnerSide) return;
+    var turn = game.turn();
+    var pos = board.position();
+    if (!clickSource) {
+      var pc = pos[sq];
+      if (!pc || !isPieceTurn(pc, turn)) return;
+      clickSource = sq;
+      $('#board .square-55d63').removeClass('cb-sel');
+      $('#board .square-55d63[data-square="' + sq + '"]').addClass('cb-sel');
+      return;
+    }
+    if (clickSource === sq) {
+      if (st && st.diagramFen) {
+        var fromSame = trueFromForDiagramStep(st, clickSource);
+        if (applyLearnerMoveIfValid(st, fromSame, sq)) return;
+      }
+      clickSource = null;
+      $('#board .square-55d63').removeClass('cb-sel');
+      return;
+    }
+    var fromTrue = trueFromForDiagramStep(st, clickSource);
+    if (applyLearnerMoveIfValid(st, fromTrue, sq)) return;
+    clickSource = null;
+    $('#board .square-55d63').removeClass('cb-sel');
+  }
+
+  function boardPointerDownCap(ev) {
+    if (typeof ev.button === 'number' && ev.button !== 0) return;
+    if (Date.now() - lastBoardTouchTs < 450) return;
+    handleBoardSquarePointer(ev);
+  }
+
+  function boardTouchStartCap(ev) {
+    if (!ev.touches || ev.touches.length !== 1) return;
+    lastBoardTouchTs = Date.now();
+    handleBoardSquarePointer(ev);
+  }
+
+  function bindBoardPointerInput() {
+    var el = document.getElementById('board');
+    if (!el) return;
+    el.removeEventListener('mousedown', boardPointerDownCap, true);
+    el.removeEventListener('touchstart', boardTouchStartCap, true);
+    el.addEventListener('mousedown', boardPointerDownCap, true);
+    el.addEventListener('touchstart', boardTouchStartCap, { capture: true, passive: false });
+  }
+
+  function mountBoard() {
+    syncBoardAndProgressWidth();
+    board = Chessboard('board', {
+      draggable: false,
+      pieceTheme: PIECE_THEME,
+      position: 'start',
+      orientation: 'white',
+      showErrors: 'console'
+    });
+    game = new Chess();
+    syncBoardAndProgressWidth();
+    board.resize();
+    $(window).off('resize.boardsize').on('resize.boardsize', function () {
+      if (!board) return;
+      afterBoardLayoutForOverlay();
+    });
+    bindBoardPointerInput();
+  }
+
+  function wireToolbar() {
+    document.getElementById('btnStart').onclick = goStart;
+    document.getElementById('btnPrev').onclick = stepBack;
+    document.getElementById('btnNext').onclick = playExpectedMove;
+    document.getElementById('btnEnd').onclick = goEnd;
+    document.getElementById('btnHint').onclick = playExpectedMove;
+    document.getElementById('btnFlip').onclick = function () {
+      studyOrientation = (studyOrientation === 'white') ? 'black' : 'white';
+      board.orientation(studyOrientation);
+      afterBoardLayoutForOverlay();
+    };
+  }
+
+  function selectLesson(oid, chapterTitle, varName, btnEl) {
+    if (!lessonsByOid) {
+      showErr('Thiếu data/lessons_by_oid.json');
+      return;
+    }
+    document.querySelectorAll('.var-btn').forEach(function (b) { b.classList.remove('active'); });
+    if (btnEl) btnEl.classList.add('active');
+
+    var path = lessonsByOid[String(oid)];
+    if (!path) {
+      showErr('Không có raw_json cho oid ' + oid);
+      return;
+    }
+    loadJson('data/' + path).then(function (data) {
+      var lesson = data.lesson || {};
+      moves = lesson.moves || [];
+      var first = moves[0] || {};
+      studyOrientation = (first.studyCol === 'black') ? 'black' : 'white';
+
+      var built = buildSteps(moves);
+      steps = built.steps;
+      finalFen = built.finalFen;
+      stepIndex = 0;
+      panelBrowsePostMove = false;
+      panelJumpSkipLastMoveHi = false;
+      panelBrowseEncFen = null;
+      panelBrowseLastMove = null;
+      var studyCol = lesson.studyCol || first.studyCol;
+      if (studyCol === 'black') learnerSide = 'b';
+      else if (studyCol === 'white') learnerSide = 'w';
+      else learnerSide = (steps[0] && steps[0].side) || 'w';
+
+      var displayTitle = varName || first.opening_name || 'Lesson';
+      var meta = [
+        first.book_name || '',
+        first.chapterTitle || chapterTitle || '',
+        'oid ' + oid
+      ].filter(Boolean).join(' · ');
+      buildMainTemplate(displayTitle, escapeHtml(meta));
+      mountBoard();
+      wireToolbar();
+      applyLessonState();
+      setTimeout(function () {
+        if (!board) return;
+        afterBoardLayoutForOverlay();
+      }, 50);
+    }).catch(function () {
+      showErr('Lỗi đọc ' + path);
+    });
+  }
+
+  function renderSidebar() {
+    var res = explorer.result || explorer;
+    var name = res.name || ('Course ' + res.bid);
+    var chapters = (res.chapters || []).slice().sort(function (a, b) {
+      return (+a.order || 0) - (+b.order || 0);
+    });
+    var nav = document.getElementById('sidebar');
+    nav.innerHTML = '';
+    var t = document.createElement('div');
+    t.className = 'course-title';
+    t.textContent = name;
+    nav.appendChild(t);
+    for (var ci = 0; ci < chapters.length; ci++) {
+      var ch = chapters[ci];
+      var det = document.createElement('details');
+      det.className = 'chapter';
+      var summ = document.createElement('summary');
+      summ.textContent = ch.title || ('Chapter ' + ch.lid);
+      det.appendChild(summ);
+      var list = document.createElement('div');
+      list.className = 'var-list';
+      var vars = ch.variations || [];
+      for (var vi = 0; vi < vars.length; vi++) {
+        var v = vars[vi];
+        if (v.oid == null) continue;
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'var-btn';
+        btn.textContent = v.name || ('oid ' + v.oid);
+        (function (oid, cht, vnm, b) {
+          btn.addEventListener('click', function () {
+            selectLesson(oid, cht, vnm, b);
+          });
+        })(v.oid, ch.title, v.name, btn);
+        list.appendChild(btn);
+      }
+      det.appendChild(list);
+      nav.appendChild(det);
+    }
+  }
+
+  wireTopTabs();
+
+  function readLastMoveFromJumpEl(el) {
+    if (!el) return null;
+    var lf = el.getAttribute('data-last-from');
+    var lt = el.getAttribute('data-last-to');
+    if (!lf || !lt) return null;
+    return { from: lf, to: lt };
+  }
+
+  function applyPanelJumpFen(enc, lastMove) {
+    if (!enc || !board) return false;
+    try {
+      var jf = decodeURIComponent(enc);
+      game = new Chess(jf);
+      board.orientation(studyOrientation);
+      board.position(fenPiecePlacementOnly(jf));
+      panelBrowseEncFen = enc;
+      panelBrowseLastMove = lastMove || null;
+      panelJumpSkipLastMoveHi = false;
+      panelBrowsePostMove = false;
+      clickSource = null;
+      $('#board .square-55d63').removeClass('cb-sel');
+      renderRightPanel();
+      scheduleRedrawOverlay();
+      return true;
+    } catch (e) {
+      console.warn(e);
+      return false;
+    }
+  }
+
+  function applyPanelJumpStep(si, lastMove) {
+    if (isNaN(si) || si < 0 || !steps.length || si >= steps.length) return false;
+    stepIndex = si;
+    panelBrowsePostMove = true;
+    panelJumpSkipLastMoveHi = false;
+    panelBrowseEncFen = null;
+    panelBrowseLastMove = lastMove || null;
+    clickSource = null;
+    $('#board .square-55d63').removeClass('cb-sel');
+    applyLessonState();
+    return true;
+  }
+
+  function applyPanelJumpElement(el) {
+    if (!el) return false;
+    if (el.hasAttribute('data-jump-step')) {
+      var si = parseInt(el.getAttribute('data-jump-step'), 10);
+      return applyPanelJumpStep(si, readLastMoveFromJumpEl(el));
+    }
+    if (el.hasAttribute('data-jump-fen')) {
+      return applyPanelJumpFen(el.getAttribute('data-jump-fen'), readLastMoveFromJumpEl(el));
+    }
+    return false;
+  }
+
+  function getPanelJumpElementsInOrder() {
+    var pr = document.getElementById('panel-right');
+    if (!pr) return [];
+    return Array.prototype.slice.call(pr.querySelectorAll('[data-jump-step], [data-jump-fen]'));
+  }
+
+  function jumpIdentityFromEl(el) {
+    if (!el) return '';
+    if (el.hasAttribute('data-jump-step')) return 's:' + el.getAttribute('data-jump-step');
+    if (el.hasAttribute('data-jump-fen')) return 'f:' + el.getAttribute('data-jump-fen');
+    return '';
+  }
+
+  function currentJumpIdentity() {
+    if (panelBrowseEncFen) return 'f:' + panelBrowseEncFen;
+    if (panelBrowsePostMove && stepIndex >= 0 && stepIndex < steps.length) return 's:' + String(stepIndex);
+    return '';
+  }
+
+  function isTypingTarget(target) {
+    if (!target || !target.closest) return false;
+    if (target.isContentEditable) return true;
+    return !!target.closest('input, textarea, select, [contenteditable="true"]');
+  }
+
+  function jumpByArrowDirection(dir, fromTarget) {
+    var items = getPanelJumpElementsInOrder();
+    if (!items.length) return false;
+    var cur = currentJumpIdentity();
+    if (!cur && fromTarget && fromTarget.closest) {
+      var viaFocus = fromTarget.closest('[data-jump-step], [data-jump-fen]');
+      if (viaFocus) cur = jumpIdentityFromEl(viaFocus);
+    }
+    var idx = -1;
+    for (var i = 0; i < items.length; i++) {
+      if (jumpIdentityFromEl(items[i]) === cur) {
+        idx = i;
+        break;
+      }
+    }
+    if (idx < 0) idx = (dir > 0) ? -1 : items.length;
+    var next = idx + (dir > 0 ? 1 : -1);
+    if (cur) {
+      while (next >= 0 && next < items.length && jumpIdentityFromEl(items[next]) === cur) {
+        next += (dir > 0 ? 1 : -1);
+      }
+    }
+    if (next < 0 || next >= items.length) return false;
+    return applyPanelJumpElement(items[next]);
+  }
+
+  document.addEventListener('click', function (ev) {
+    var pr = document.getElementById('panel-right');
+    if (!pr || !ev.target || !pr.contains(ev.target)) return;
+    var jumpFenEl = ev.target.closest('[data-jump-fen]');
+    if (jumpFenEl && pr.contains(jumpFenEl) && !jumpFenEl.hasAttribute('data-jump-step')) {
+      ev.preventDefault();
+      applyPanelJumpElement(jumpFenEl);
+      return;
+    }
+    var jumpEl = ev.target.closest('[data-jump-step]');
+    if (jumpEl && pr.contains(jumpEl)) {
+      ev.preventDefault();
+      applyPanelJumpElement(jumpEl);
+      return;
+    }
+    var sqEl = ev.target.closest('[data-square-focus]');
+    if (sqEl && pr.contains(sqEl)) {
+      var sqq = sqEl.getAttribute('data-square-focus');
+      if (!sqq) return;
+      $('#board .square-55d63').removeClass('cb-drawing-hi');
+      var $c = $('#board .square-55d63[data-square="' + sqq + '"]');
+      $c.addClass('cb-drawing-hi');
+      setTimeout(function () { $c.removeClass('cb-drawing-hi'); }, 1400);
+    }
+  });
+
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key !== 'Enter' && ev.key !== ' ') return;
+    var pr = document.getElementById('panel-right');
+    if (!pr || !ev.target || !pr.contains(ev.target)) return;
+    var kf = ev.target.closest('[data-jump-fen]');
+    if (kf && pr.contains(kf) && !kf.hasAttribute('data-jump-step')) {
+      ev.preventDefault();
+      applyPanelJumpElement(kf);
+      return;
+    }
+    var jumpEl = ev.target.closest('[data-jump-step]');
+    if (!jumpEl) return;
+    ev.preventDefault();
+    applyPanelJumpElement(jumpEl);
+  });
+
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key !== 'ArrowRight' && ev.key !== 'ArrowLeft') return;
+    if (isTypingTarget(ev.target)) return;
+    var dir = ev.key === 'ArrowRight' ? 1 : -1;
+    if (!jumpByArrowDirection(dir, ev.target)) return;
+    ev.preventDefault();
+  });
+
+  loadJson('data/course_explorer_snapshot.json').then(function (ex) {
+    explorer = ex;
+    return loadJson('data/lessons_by_oid.json');
+  }).then(function (map) {
+    lessonsByOid = map;
+    renderSidebar();
+  }).catch(function (e) {
+    showErr('Không tải data: ' + e.message);
+  });
+})();
+  </script>
+</body>
+</html>

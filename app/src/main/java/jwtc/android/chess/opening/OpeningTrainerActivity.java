@@ -255,6 +255,17 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
         return name;
     }
 
+    private String buildWhiteBlackChapterName(String chunk) {
+        String white = OpeningPgnParser.extractBracketTagValue(chunk, "White");
+        String black = OpeningPgnParser.extractBracketTagValue(chunk, "Black");
+        String whiteTrim = white != null ? white.trim() : "";
+        String blackTrim = black != null ? black.trim() : "";
+        if (!whiteTrim.isEmpty() && !blackTrim.isEmpty()) {
+            return whiteTrim + " - " + blackTrim;
+        }
+        return null;
+    }
+
     private void loadChapterSelectionMaskFromPrefs() {
         if (currentStudyKey == null || currentStudyKey.isEmpty()) {
             chapterSelectionMask = null;
@@ -1233,6 +1244,14 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
                     url = urlMatcher.group(1);
                 }
                 String chapterName = names.get(i);
+                if (chapterName == null || chapterName.trim().isEmpty()) {
+                    String wbName = buildWhiteBlackChapterName(chunk);
+                    if (wbName != null) {
+                        chapterName = wbName;
+                    } else {
+                        chapterName = "Chapter " + (i + 1);
+                    }
+                }
                 String id = buildChapterPersistentId(chapterName, url, chunk);
                 int lineCount = countLeafPathsInChunk(chunk);
                 String guide = OpeningPgnParser.extractBracketTagValue(chunk, "Guide");
@@ -1249,15 +1268,23 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
                 if (!OpeningPgnParser.chunkHasMoves(chunk)) {
                     continue;
                 }
+                String chapterNameTag = OpeningPgnParser.extractBracketTagValue(chunk, "ChapterName");
                 String ev = OpeningPgnParser.extractBracketTagValue(chunk, "Event");
                 String ch = OpeningPgnParser.extractBracketTagValue(chunk, "Chapter");
                 String name;
-                if (ev != null && !ev.trim().isEmpty()) {
-                    name = ev.trim();
-                } else if (ch != null && !ch.trim().isEmpty()) {
-                    name = ch.trim();
+                if (chapterNameTag != null && !chapterNameTag.trim().isEmpty()) {
+                    name = chapterNameTag.trim();
                 } else {
-                    name = "Game " + (i + 1);
+                    String wbName = buildWhiteBlackChapterName(chunk);
+                    if (wbName != null) {
+                        name = wbName;
+                    } else if (ev != null && !ev.trim().isEmpty()) {
+                        name = ev.trim();
+                    } else if (ch != null && !ch.trim().isEmpty()) {
+                        name = ch.trim();
+                    } else {
+                        name = "Game " + (i + 1);
+                    }
                 }
                 String guide = OpeningPgnParser.extractBracketTagValue(chunk, "Guide");
                 String id = buildChapterPersistentId(name, "", chunk);
@@ -1272,10 +1299,15 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
         if (single.isEmpty() || !OpeningPgnParser.chunkHasMoves(single)) {
             return out;
         }
-        String id = buildChapterPersistentId("Line 1", "", single);
+        String oneName = OpeningPgnParser.extractBracketTagValue(single, "ChapterName");
+        if (oneName == null || oneName.trim().isEmpty()) {
+            String wbName = buildWhiteBlackChapterName(single);
+            oneName = wbName != null ? wbName : "Line 1";
+        }
+        String id = buildChapterPersistentId(oneName, "", single);
         int lineCount = countLeafPathsInChunk(single);
         String guide = OpeningPgnParser.extractBracketTagValue(single, "Guide");
-        out.add(new StudyChapter("Line 1", "", single, extractStartFenFromChunk(single), id, lineCount,
+        out.add(new StudyChapter(oneName, "", single, extractStartFenFromChunk(single), id, lineCount,
                 guide != null ? guide : ""));
         return out;
     }
