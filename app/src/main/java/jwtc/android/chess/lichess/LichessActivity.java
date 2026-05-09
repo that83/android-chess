@@ -61,6 +61,13 @@ public class LichessActivity extends ChessBoardActivity implements LichessApi.Li
     private Intent pendingData;
     private boolean serviceConnected = false;
 
+    private void runOnUiThreadSafe(Runnable action) {
+        if (isFinishing()) {
+            return;
+        }
+        runOnUiThread(action);
+    }
+
     private final ServiceConnection mConnection = new ServiceConnection() {
         public void onServiceConnected(ComponentName className, IBinder service) {
             Log.i(TAG, "onServiceConnected");
@@ -242,160 +249,172 @@ public class LichessActivity extends ChessBoardActivity implements LichessApi.Li
     protected void onStop() {
         Log.i(TAG, "onStop");
         super.onStop();
-
-        unbindService(mConnection);
+        if (serviceConnected) {
+            unbindService(mConnection);
+            serviceConnected = false;
+        }
     }
 
     @Override
     public void onAuthenticate(String user) {
-        Log.d(TAG, "onAuthenticate " + user);
-
-        if (user != null) {
-            textViewHandle.setText(user);
-            lichessApi.event();
-            displayLobby();
-        } else {
-            displayLogin();
-        }
+        runOnUiThreadSafe(() -> {
+            Log.d(TAG, "onAuthenticate " + user);
+            if (user != null) {
+                textViewHandle.setText(user);
+                lichessApi.event();
+                displayLobby();
+            } else {
+                displayLogin();
+            }
+        });
     }
 
     @Override
     public void onGameInit(String gameId) {
-        openGame(gameId);
+        runOnUiThreadSafe(this::displayLobby);
     }
 
     @Override
     public void onGameUpdate(GameFull gameFull) {
-        int myTurn = lichessApi.getMyTurn();
-        int turn = lichessApi.getTurn();
-        boolean isMyTurn = myTurn == turn;
-        boolean playAsWhite = myTurn == BoardConstants.WHITE;
-        textViewPlayerOpp.setText(playAsWhite ? gameFull.black.name : gameFull.white.name);
-        textViewPlayerMe.setText(playAsWhite ? gameFull.white.name : gameFull.black.name);
+        runOnUiThreadSafe(() -> {
+            int myTurn = lichessApi.getMyTurn();
+            int turn = lichessApi.getTurn();
+            boolean playAsWhite = myTurn == BoardConstants.WHITE;
+            textViewPlayerOpp.setText(playAsWhite ? gameFull.black.name : gameFull.white.name);
+            textViewPlayerMe.setText(playAsWhite ? gameFull.white.name : gameFull.black.name);
 
-        textViewRatingOpp.setText(""  + (playAsWhite ? gameFull.black.rating : gameFull.white.rating));
-        textViewRatingMe.setText("" + (playAsWhite ? gameFull.white.rating : gameFull.black.rating));
+            textViewRatingOpp.setText("" + (playAsWhite ? gameFull.black.rating : gameFull.white.rating));
+            textViewRatingMe.setText("" + (playAsWhite ? gameFull.white.rating : gameFull.black.rating));
 
-        if (gameFull.clock != null && gameFull.state.status.equals("started")) {
-            localClockApi.startClock(gameFull.clock.increment, gameFull.state.wtime, gameFull.state.btime, turn, System.currentTimeMillis());
-        }
+            if (gameFull.clock != null && gameFull.state.status.equals("started")) {
+                localClockApi.startClock(gameFull.clock.increment, gameFull.state.wtime, gameFull.state.btime, turn, System.currentTimeMillis());
+            }
 
-        String stateMessage = gameStateToTranslated(gameFull.state.status);
-        if (gameFull.state.winner != null){
-            stateMessage += ". " + getString(R.string.lichess_game_winner, gameFull.state.winner);
-        }
-        textViewStatus.setText(stateMessage);
+            String stateMessage = gameStateToTranslated(gameFull.state.status);
+            if (gameFull.state.winner != null) {
+                stateMessage += ". " + getString(R.string.lichess_game_winner, gameFull.state.winner);
+            }
+            textViewStatus.setText(stateMessage);
 
-        boolean isDrawOffer = playAsWhite ? gameFull.state.bdraw : gameFull.state.wdraw;
-        if (isDrawOffer) {
-            textViewOfferDraw.setText(R.string.lichess_opponent_offers_draw);
-            pulseAnimation(textViewOfferDraw, 1.2f, 1);
-        } else {
-            textViewOfferDraw.setText("");
-        }
+            boolean isDrawOffer = playAsWhite ? gameFull.state.bdraw : gameFull.state.wdraw;
+            if (isDrawOffer) {
+                textViewOfferDraw.setText(R.string.lichess_opponent_offers_draw);
+                pulseAnimation(textViewOfferDraw, 1.2f, 1);
+            } else {
+                textViewOfferDraw.setText("");
+            }
+        });
     }
 
     @Override
     public void onGameFinish() {
-        localClockApi.stopClock();
+        runOnUiThreadSafe(localClockApi::stopClock);
     }
 
     @Override
     public void onGameDisconnected() {
-        textViewLobbyStatus.setText(R.string.lichess_game_disconnected);
-        displayLobby();
+        runOnUiThreadSafe(() -> {
+            textViewLobbyStatus.setText(R.string.lichess_game_disconnected);
+            displayLobby();
+        });
     }
 
     @Override
     public void onInvalidMove(String reason) {
-        textViewStatus.setText(reason);
+        runOnUiThreadSafe(() -> textViewStatus.setText(reason));
     }
 
     @Override
     public void onNowPlaying(List<Game> games, String me) {
-        Log.d(TAG, "onNowPlaying " + games.size());
-        textViewLobbyStatus.setText(R.string.lichess_lobby_connected);
-        nowPlayingGames = games;
-        mapGames.clear();
-        for (int i = 0; i < games.size(); i++) {
-            Game game = games.get(i);
-            HashMap<String, String> gameMap = new HashMap<>();
-            if (game.color.equals("white")) {
-                gameMap.put("image_turn_white", "" + (game.isMyTurn ? R.drawable.turnwhite : R.drawable.turnempty));
-                gameMap.put("image_turn_black", "" + (game.isMyTurn ? R.drawable.turnempty : R.drawable.turnblack));
-                gameMap.put("text_white", me);
-                gameMap.put("text_black", game.opponent.username);
-            } else {
-                gameMap.put("image_turn_white", "" + (game.isMyTurn ? R.drawable.turnempty : R.drawable.turnwhite));
-                gameMap.put("image_turn_black", "" + (game.isMyTurn ? R.drawable.turnblack : R.drawable.turnempty));
-                gameMap.put("text_white", game.opponent.username);
-                gameMap.put("text_black", me);
+        runOnUiThreadSafe(() -> {
+            Log.d(TAG, "onNowPlaying " + games.size());
+            textViewLobbyStatus.setText(R.string.lichess_lobby_connected);
+            nowPlayingGames = games;
+            mapGames.clear();
+            for (int i = 0; i < games.size(); i++) {
+                Game game = games.get(i);
+                HashMap<String, String> gameMap = new HashMap<>();
+                if (game.color.equals("white")) {
+                    gameMap.put("image_turn_white", "" + (game.isMyTurn ? R.drawable.turnwhite : R.drawable.turnempty));
+                    gameMap.put("image_turn_black", "" + (game.isMyTurn ? R.drawable.turnempty : R.drawable.turnblack));
+                    gameMap.put("text_white", me);
+                    gameMap.put("text_black", game.opponent.username);
+                } else {
+                    gameMap.put("image_turn_white", "" + (game.isMyTurn ? R.drawable.turnempty : R.drawable.turnwhite));
+                    gameMap.put("image_turn_black", "" + (game.isMyTurn ? R.drawable.turnblack : R.drawable.turnempty));
+                    gameMap.put("text_white", game.opponent.username);
+                    gameMap.put("text_black", me);
+                }
+                mapGames.add(gameMap);
             }
-            mapGames.add(gameMap);
-        }
-        adapterGames.notifyDataSetChanged();
+            adapterGames.notifyDataSetChanged();
+        });
     }
 
     @Override
     public void onConnectionError() {
-        textViewLobbyStatus.setText(R.string.lichess_games_connection_error_retry);
-        new java.util.Timer().schedule(
-            new java.util.TimerTask() {
-                @Override
-                public void run() {
-                    textViewLobbyStatus.setText("");
-                    lichessApi.event();
-                    lichessApi.playing();
-                }
-            }, 5000
-        );
+        runOnUiThreadSafe(() -> textViewLobbyStatus.setText(R.string.lichess_games_connection_error_retry));
+        listViewGames.postDelayed(() -> {
+            if (isFinishing()) {
+                return;
+            }
+            textViewLobbyStatus.setText("");
+            lichessApi.event();
+            lichessApi.playing();
+        }, 5000);
     }
 
     @Override
     public void onChallenge(Challenge challenge) {
-        // no challenge disruption while playing
-        if (viewAnimatorSub.getDisplayedChild() != VIEW_SUB_PLAY) {
-            int minutes = challenge.timeControl.limit / 60;
+        runOnUiThreadSafe(() -> {
+            // no challenge disruption while playing
+            if (viewAnimatorSub.getDisplayedChild() != VIEW_SUB_PLAY) {
+                int minutes = challenge.timeControl.limit / 60;
 
-            String message = challenge.challenger.name + " \n" +
-                    getString(R.string.lichess_challenge_dialog_message_variant, challenge.variant.name) + "\n" +
-                    getString(R.string.lichess_challenge_dialog_message_time_control, challenge.timeControl.type) + "\n" +
-                    (challenge.timeControl.limit > 0 ? " " + minutes + "+" + challenge.timeControl.increment : "") + "\n" +
-                    (challenge.rated ? getString(R.string.lichess_challenge_dialog_message_rated) : getString(R.string.lichess_challenge_dialog_message_unrated));
+                String message = challenge.challenger.name + " \n" +
+                        getString(R.string.lichess_challenge_dialog_message_variant, challenge.variant.name) + "\n" +
+                        getString(R.string.lichess_challenge_dialog_message_time_control, challenge.timeControl.type) + "\n" +
+                        (challenge.timeControl.limit > 0 ? " " + minutes + "+" + challenge.timeControl.increment : "") + "\n" +
+                        (challenge.rated ? getString(R.string.lichess_challenge_dialog_message_rated) : getString(R.string.lichess_challenge_dialog_message_unrated));
 
-            new AlertDialog.Builder(LichessActivity.this)
-                    .setTitle(R.string.lichess_challenge_dialog_title)
-                    .setMessage(message)
-                    .setPositiveButton(R.string.lichess_challenge_dialog_button_accept, (dialog, which) -> {
-                        lichessApi.acceptChallenge(challenge);
-                    })
-                    .setNegativeButton(R.string.lichess_challenge_dialog_button_decline, (dialog, which) -> {
-                        lichessApi.declineChallenge(challenge);
-                    })
-                    .show();
-        }
+                new AlertDialog.Builder(LichessActivity.this)
+                        .setTitle(R.string.lichess_challenge_dialog_title)
+                        .setMessage(message)
+                        .setPositiveButton(R.string.lichess_challenge_dialog_button_accept, (dialog, which) -> {
+                            lichessApi.acceptChallenge(challenge);
+                        })
+                        .setNegativeButton(R.string.lichess_challenge_dialog_button_decline, (dialog, which) -> {
+                            lichessApi.declineChallenge(challenge);
+                        })
+                        .show();
+            }
+        });
     }
 
     @Override
     public void onChallengeCancelled(Challenge challenge) {
-        textViewLobbyStatus.setText(getString(R.string.lichess_challenge_by_cancelled, challenge.challenger.name));
+        runOnUiThreadSafe(() -> textViewLobbyStatus.setText(getString(R.string.lichess_challenge_by_cancelled, challenge.challenger.name)));
     }
 
     @Override
     public void onChallengeDeclined(Challenge challenge) {
-        textViewLobbyStatus.setText(getString(R.string.lichess_challenge_by_declined, challenge.challenger.name));
+        runOnUiThreadSafe(() -> textViewLobbyStatus.setText(getString(R.string.lichess_challenge_by_declined, challenge.challenger.name)));
     }
 
     @Override
     public void onMyChallengeCancelled() {
-        buttonChallenge.setEnabled(true);
-        textViewLobbyStatus.setText(R.string.lichess_my_challenge_closed);
+        runOnUiThreadSafe(() -> {
+            buttonChallenge.setEnabled(true);
+            textViewLobbyStatus.setText(R.string.lichess_my_challenge_closed);
+        });
     }
 
     @Override
     public void onMySeekCancelled() {
-        buttonSeek.setEnabled(true);
-        textViewLobbyStatus.setText(R.string.lichess_my_seek_closed);
+        runOnUiThreadSafe(() -> {
+            buttonSeek.setEnabled(true);
+            textViewLobbyStatus.setText(R.string.lichess_my_seek_closed);
+        });
     }
 
     @Override
@@ -546,7 +565,7 @@ public class LichessActivity extends ChessBoardActivity implements LichessApi.Li
 
     @Override
     public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
-        if (parent == listViewGames && nowPlayingGames.size() > position) {
+        if (parent == listViewGames && nowPlayingGames != null && nowPlayingGames.size() > position) {
             Game game = nowPlayingGames.get(position);
             lichessApi.game(game.gameId);
             displayPlay();

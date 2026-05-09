@@ -13,10 +13,16 @@ import android.database.Cursor;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
+import android.net.Uri;
 import android.os.Bundle;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
+import android.text.InputFilter;
+import android.text.InputType;
 import android.util.Log;
 import android.view.View;
+import android.widget.ScrollView;
 import android.widget.AdapterView;
 import android.widget.ListView;
 import android.widget.Button;
@@ -25,7 +31,19 @@ import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.SimpleAdapter;
 import android.widget.TextView;
-import android.widget.ScrollView;
+
+import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.ByteBuffer;
+import java.nio.CharBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CharsetDecoder;
+import java.nio.charset.CodingErrorAction;
+import java.nio.charset.StandardCharsets;
 
 import com.google.gson.JsonObject;
 
@@ -54,6 +72,7 @@ public class OpeningImportActivity extends Activity implements AdapterView.OnIte
     private ProgressBar progressBar;
     private ListView listView;
     private Button buttonImportUrl;
+    private Button buttonImportPgn;
     private Button buttonLogCopy;
     private Button buttonLogClear;
 
@@ -67,7 +86,86 @@ public class OpeningImportActivity extends Activity implements AdapterView.OnIte
     private boolean offlineMode = false;
     private String lichessUsername;
 
+    private static final int REQUEST_PICK_PGN_FILE = 2001;
+    private static final String PGN_FILE_REF_PREFIX = "@file:";
+    private static final int PGN_INLINE_MAX_CHARS = 256 * 1024;
     private static final Pattern STUDY_URL_PATTERN = Pattern.compile("(?i)https?://(www\\.)?lichess\\.org/study/([a-zA-Z0-9]{8})(/.*)?");
+    /** Holds PGN text loaded from file, to be consumed by the import dialog. */
+    private String pendingFilePgn = null;
+    private EditText pendingPgnEditText = null;
+    private TextView pendingFileStatusText = null;
+
+    private String saveLargePgnToInternalFile(String studyId, String pgn) {
+        if (studyId == null || pgn == null) return null;
+        try {
+            File dir = new File(getFilesDir(), "opening_pgn");
+            if (!dir.exists() && !dir.mkdirs()) {
+                return null;
+            }
+            File out = new File(dir, studyId + ".pgn");
+            try (FileOutputStream fos = new FileOutputStream(out)) {
+                fos.write(pgn.getBytes(StandardCharsets.UTF_8));
+            }
+            return PGN_FILE_REF_PREFIX + out.getAbsolutePath();
+        } catch (Exception e) {
+            Log.e(TAG, "saveLargePgnToInternalFile failed", e);
+            return null;
+        }
+    }
+
+    private static String decodeBytesPreferUtf8(byte[] bytes) {
+        if (bytes == null || bytes.length == 0) return "";
+        // BOM detection first.
+        if (bytes.length >= 3
+                && (bytes[0] & 0xFF) == 0xEF
+                && (bytes[1] & 0xFF) == 0xBB
+                && (bytes[2] & 0xFF) == 0xBF) {
+            return new String(bytes, 3, bytes.length - 3, StandardCharsets.UTF_8);
+        }
+        if (bytes.length >= 2
+                && (bytes[0] & 0xFF) == 0xFF
+                && (bytes[1] & 0xFF) == 0xFE) {
+            return new String(bytes, 2, bytes.length - 2, StandardCharsets.UTF_16LE);
+        }
+        if (bytes.length >= 2
+                && (bytes[0] & 0xFF) == 0xFE
+                && (bytes[1] & 0xFF) == 0xFF) {
+            return new String(bytes, 2, bytes.length - 2, StandardCharsets.UTF_16BE);
+        }
+        // Strict UTF-8; if invalid then fallback.
+        try {
+            CharsetDecoder decoder = StandardCharsets.UTF_8.newDecoder()
+                    .onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT);
+            CharBuffer cb = decoder.decode(ByteBuffer.wrap(bytes));
+            return cb.toString();
+        } catch (CharacterCodingException ignored) {
+        }
+        // Common fallback for legacy TXT exports on Windows/Android tools.
+        return new String(bytes, java.nio.charset.Charset.forName("windows-1252"));
+    }
+
+    private String resolveStoredPgn(String stored) {
+        if (stored == null) return "";
+        if (!stored.startsWith(PGN_FILE_REF_PREFIX)) {
+            return stored;
+        }
+        String path = stored.substring(PGN_FILE_REF_PREFIX.length());
+        if (path.isEmpty()) return "";
+        try (InputStream is = new java.io.FileInputStream(path);
+             BufferedReader reader = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8), 64 * 1024)) {
+            StringBuilder sb = new StringBuilder();
+            char[] buf = new char[32 * 1024];
+            int n;
+            while ((n = reader.read(buf)) != -1) {
+                sb.append(buf, 0, n);
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            Log.e(TAG, "resolveStoredPgn failed path=" + path, e);
+            return "";
+        }
+    }
 
     private final ServiceConnection mConnection = new ServiceConnection() {
         @Override
@@ -90,6 +188,12 @@ public class OpeningImportActivity extends Activity implements AdapterView.OnIte
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQUEST_PICK_PGN_FILE) {
+            if (resultCode == RESULT_OK && data != null && data.getData() != null) {
+                readPgnFileAsync(data.getData());
+            }
+            return;
+        }
         // Forward OAuth login results when user re-authenticates from this screen.
         if (data != null) {
             try {
@@ -102,6 +206,67 @@ public class OpeningImportActivity extends Activity implements AdapterView.OnIte
         }
     }
 
+    private void readPgnFileAsync(Uri uri) {
+        appendLog("Reading file: " + uri.toString());
+        if (pendingFileStatusText != null) {
+            pendingFileStatusText.setText(R.string.opening_import_pgn_file_reading);
+        }
+        progressBar.setVisibility(View.VISIBLE);
+
+        new Thread(() -> {
+            String result = null;
+            long size = 0;
+            try {
+                InputStream is = getContentResolver().openInputStream(uri);
+                if (is != null) {
+                    ByteArrayOutputStream bos = new ByteArrayOutputStream();
+                    byte[] buf = new byte[64 * 1024];
+                    int n;
+                    while ((n = is.read(buf)) != -1) {
+                        bos.write(buf, 0, n);
+                    }
+                    byte[] raw = bos.toByteArray();
+                    result = decodeBytesPreferUtf8(raw);
+                    size = raw.length;
+                    is.close();
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "readPgnFileAsync failed", e);
+            }
+            final String pgn = result;
+            final long bytes = size;
+            new Handler(Looper.getMainLooper()).post(() -> {
+                progressBar.setVisibility(View.GONE);
+                if (pgn != null && !pgn.trim().isEmpty()) {
+                    pendingFilePgn = pgn;
+                    String sizeStr = bytes > 1024 * 1024
+                            ? String.format("%.1f MB", bytes / (1024.0 * 1024.0))
+                            : String.format("%.1f KB", bytes / 1024.0);
+                    String fileName = uri.getLastPathSegment();
+                    if (fileName == null) fileName = "file";
+                    String msg = getString(R.string.opening_import_pgn_file_loaded, fileName, sizeStr);
+                    appendLog(msg);
+                    if (pendingFileStatusText != null) {
+                        pendingFileStatusText.setText(msg);
+                    }
+                    if (pendingPgnEditText != null) {
+                        int previewLen = Math.min(pgn.length(), 2000);
+                        String preview = pgn.substring(0, previewLen);
+                        if (previewLen < pgn.length()) {
+                            preview += "\n\n… (" + sizeStr + " total, truncated in preview)";
+                        }
+                        pendingPgnEditText.setText(preview);
+                    }
+                } else {
+                    appendLog(getString(R.string.opening_import_pgn_file_error));
+                    if (pendingFileStatusText != null) {
+                        pendingFileStatusText.setText(R.string.opening_import_pgn_file_error);
+                    }
+                }
+            });
+        }).start();
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -112,6 +277,7 @@ public class OpeningImportActivity extends Activity implements AdapterView.OnIte
         progressBar = findViewById(R.id.ProgressBarOpening);
         listView = findViewById(R.id.ListViewStudies);
         buttonImportUrl = findViewById(R.id.ButtonImportStudyUrl);
+        buttonImportPgn = findViewById(R.id.ButtonImportStudyPgn);
         buttonLogCopy = findViewById(R.id.ButtonOpeningLogCopy);
         buttonLogClear = findViewById(R.id.ButtonOpeningLogClear);
         logScrollView = findViewById(R.id.ScrollViewOpeningLog);
@@ -158,6 +324,9 @@ public class OpeningImportActivity extends Activity implements AdapterView.OnIte
 
         if (buttonImportUrl != null) {
             buttonImportUrl.setOnClickListener(v -> showImportFromUrlDialog());
+        }
+        if (buttonImportPgn != null) {
+            buttonImportPgn.setOnClickListener(v -> showImportFromPgnDialog());
         }
 
         if (buttonLogCopy != null) {
@@ -475,6 +644,150 @@ public class OpeningImportActivity extends Activity implements AdapterView.OnIte
                 .show();
     }
 
+    private void showImportFromPgnDialog() {
+        pendingFilePgn = null;
+
+        float density = getResources().getDisplayMetrics().density;
+        int padding = (int) (16 * density);
+        int scrollHeight = (int) (280 * density);
+
+        EditText editPgn = new EditText(this);
+        editPgn.setHint(R.string.opening_import_pgn_hint);
+        editPgn.setSingleLine(false);
+        editPgn.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+        editPgn.setFilters(new InputFilter[0]);
+        editPgn.setGravity(android.view.Gravity.TOP | android.view.Gravity.START);
+        editPgn.setHorizontallyScrolling(false);
+
+        pendingPgnEditText = editPgn;
+
+        ScrollView scrollPgn = new ScrollView(this);
+        scrollPgn.setFillViewport(true);
+        scrollPgn.addView(editPgn, new ScrollView.LayoutParams(
+                ScrollView.LayoutParams.MATCH_PARENT,
+                ScrollView.LayoutParams.WRAP_CONTENT));
+
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(padding, padding, padding, padding);
+        root.addView(scrollPgn, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                scrollHeight));
+
+        TextView fileStatusLabel = new TextView(this);
+        fileStatusLabel.setTextSize(12);
+        fileStatusLabel.setPadding(0, (int)(4 * density), 0, (int)(4 * density));
+        pendingFileStatusText = fileStatusLabel;
+
+        Button buttonChooseFile = new Button(this);
+        buttonChooseFile.setText(R.string.opening_import_pgn_choose_file);
+        buttonChooseFile.setOnClickListener(v -> {
+            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            intent.setType("*/*");
+            String[] mimeTypes = {"text/plain", "application/x-chess-pgn", "application/octet-stream"};
+            intent.putExtra(Intent.EXTRA_MIME_TYPES, mimeTypes);
+            startActivityForResult(intent, REQUEST_PICK_PGN_FILE);
+        });
+
+        LinearLayout fileRow = new LinearLayout(this);
+        fileRow.setOrientation(LinearLayout.HORIZONTAL);
+        fileRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        fileRow.addView(buttonChooseFile, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+        fileRow.addView(fileStatusLabel, new LinearLayout.LayoutParams(
+                0,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                1f));
+        root.addView(fileRow, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        EditText editName = new EditText(this);
+        editName.setHint(R.string.opening_import_name_hint);
+        editName.setSingleLine(true);
+        root.addView(editName, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
+
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.opening_import_pgn_title)
+                .setView(root)
+                .setPositiveButton(android.R.string.ok, (dialog, which) -> {
+                    String pgn;
+                    if (pendingFilePgn != null && !pendingFilePgn.trim().isEmpty()) {
+                        pgn = pendingFilePgn;
+                    } else {
+                        pgn = editPgn.getText() != null ? editPgn.getText().toString().trim() : "";
+                    }
+                    String name = editName.getText() != null ? editName.getText().toString().trim() : "";
+                    if (pgn.isEmpty()) {
+                        appendLog(getString(R.string.opening_import_pgn_empty));
+                        textStatus.setText(R.string.opening_import_error);
+                        return;
+                    }
+                    if (name.isEmpty()) {
+                        name = "Imported PGN";
+                    }
+                    importPgnStudy(pgn, name);
+                    pendingFilePgn = null;
+                    pendingPgnEditText = null;
+                    pendingFileStatusText = null;
+                })
+                .setNegativeButton(android.R.string.cancel, (dialog, which) -> {
+                    pendingFilePgn = null;
+                    pendingPgnEditText = null;
+                    pendingFileStatusText = null;
+                })
+                .show();
+    }
+
+    /**
+     * Save pasted PGN locally (no Lichess API). Same DB shape as URL import — opens in library / trainer like other imports.
+     */
+    private void importPgnStudy(String pgn, String studyName) {
+        if (pgn == null || pgn.trim().isEmpty()) {
+            appendLog(getString(R.string.opening_import_pgn_empty));
+            textStatus.setText(R.string.opening_import_error);
+            return;
+        }
+        long now = System.currentTimeMillis();
+        String studyId = "local_pgn_" + Long.toHexString(now);
+        appendLog("Import PGN (local): " + studyName + " id=" + studyId + " bytes=" + pgn.length());
+
+        ContentValues studyValues = new ContentValues();
+        studyValues.put(OpeningStudyProvider.COL_STUDY_ID, studyId);
+        studyValues.put(OpeningStudyProvider.COL_STUDY_NAME, studyName);
+        studyValues.put(OpeningStudyProvider.COL_STUDY_URL, "pgn://local");
+        studyValues.put(OpeningStudyProvider.COL_STUDY_IMPORTED_AT, now);
+        getContentResolver().insert(OpeningStudyProvider.CONTENT_URI_STUDIES, studyValues);
+
+        String storedPgn = pgn;
+        if (pgn.length() > PGN_INLINE_MAX_CHARS) {
+            String fileRef = saveLargePgnToInternalFile(studyId, pgn);
+            if (fileRef != null) {
+                storedPgn = fileRef;
+                appendLog("Stored large PGN in file reference (chars=" + pgn.length() + ")");
+            } else {
+                appendLog("WARN: failed to save large PGN file, fallback to inline DB storage");
+            }
+        }
+
+        ContentValues chapterValues = new ContentValues();
+        chapterValues.put(OpeningStudyProvider.COL_CHAPTER_ID, studyId + "_all");
+        chapterValues.put(OpeningStudyProvider.COL_CHAPTER_NAME, studyName);
+        chapterValues.put(OpeningStudyProvider.COL_CHAPTER_STUDY_ID, studyId);
+        chapterValues.put(OpeningStudyProvider.COL_CHAPTER_PGN, storedPgn);
+        chapterValues.put(OpeningStudyProvider.COL_CHAPTER_IMPORTED_AT, now);
+        getContentResolver().insert(OpeningStudyProvider.CONTENT_URI_CHAPTERS, chapterValues);
+
+        textStatus.setText(R.string.opening_import_done);
+        appendLog("Saved PGN import to DB");
+        upsertImportedStudyInList(studyId, studyName, "pgn://local");
+    }
+
     private void showImportFromUrlDialog() {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -609,22 +922,22 @@ public class OpeningImportActivity extends Activity implements AdapterView.OnIte
 
             // For now we expect one synthetic chapter, but handle multiple generically.
             final ArrayList<String> chapterNames = new ArrayList<>();
-            final ArrayList<String> chapterPgns = new ArrayList<>();
+            final ArrayList<String> chapterStoredPgns = new ArrayList<>();
             do {
                 String chapterName = c.getString(c.getColumnIndexOrThrow(OpeningStudyProvider.COL_CHAPTER_NAME));
-                String pgn = c.getString(c.getColumnIndexOrThrow(OpeningStudyProvider.COL_CHAPTER_PGN));
                 chapterNames.add(chapterName != null ? chapterName : "Chapter");
-                chapterPgns.add(pgn != null ? pgn : "");
+                String stored = c.getString(c.getColumnIndexOrThrow(OpeningStudyProvider.COL_CHAPTER_PGN));
+                chapterStoredPgns.add(stored != null ? stored : "");
             } while (c.moveToNext());
 
             if (chapterNames.size() == 1) {
-                showPgnDialog(studyId, studyName, chapterNames.get(0), chapterPgns.get(0));
+                showPgnDialog(studyId, studyName, chapterNames.get(0), chapterStoredPgns.get(0));
             } else {
                 CharSequence[] items = chapterNames.toArray(new CharSequence[0]);
                 new AlertDialog.Builder(this)
                         .setTitle(studyName)
                         .setItems(items, (dialog, which) -> {
-                            showPgnDialog(studyId, studyName, chapterNames.get(which), chapterPgns.get(which));
+                            showPgnDialog(studyId, studyName, chapterNames.get(which), chapterStoredPgns.get(which));
                         })
                         .show();
             }
@@ -633,10 +946,15 @@ public class OpeningImportActivity extends Activity implements AdapterView.OnIte
         }
     }
 
-    private void showPgnDialog(String studyId, String studyName, String chapterName, String pgn) {
+    private void showPgnDialog(String studyId, String studyName, String chapterName, String storedPgn) {
+        final String pgn = resolveStoredPgn(storedPgn);
         TextView textView = new TextView(this);
         textView.setTextIsSelectable(true);
-        textView.setText(pgn);
+        String previewText = pgn;
+        if (pgn.length() > 20000) {
+            previewText = pgn.substring(0, 20000) + "\n\n... (preview truncated)";
+        }
+        textView.setText(previewText);
         int padding = (int) (16 * getResources().getDisplayMetrics().density);
         textView.setPadding(padding, padding, padding, padding);
 
@@ -682,7 +1000,11 @@ public class OpeningImportActivity extends Activity implements AdapterView.OnIte
             Intent intent = new Intent(OpeningImportActivity.this, jwtc.android.chess.opening.OpeningTrainerActivity.class);
             intent.putExtra("study_name", studyName);
             intent.putExtra("chapter_name", chapterName);
-            intent.putExtra("pgn", pgn);
+            if (storedPgn != null && storedPgn.startsWith(PGN_FILE_REF_PREFIX)) {
+                intent.putExtra("pgn_file_path", storedPgn.substring(PGN_FILE_REF_PREFIX.length()));
+            } else {
+                intent.putExtra("pgn", pgn);
+            }
             intent.putExtra("play_as", "white");
             startActivity(intent);
         });
@@ -694,7 +1016,11 @@ public class OpeningImportActivity extends Activity implements AdapterView.OnIte
             Intent intent = new Intent(OpeningImportActivity.this, jwtc.android.chess.opening.OpeningTrainerActivity.class);
             intent.putExtra("study_name", studyName);
             intent.putExtra("chapter_name", chapterName);
-            intent.putExtra("pgn", pgn);
+            if (storedPgn != null && storedPgn.startsWith(PGN_FILE_REF_PREFIX)) {
+                intent.putExtra("pgn_file_path", storedPgn.substring(PGN_FILE_REF_PREFIX.length()));
+            } else {
+                intent.putExtra("pgn", pgn);
+            }
             intent.putExtra("play_as", "black");
             startActivity(intent);
         });

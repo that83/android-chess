@@ -4,9 +4,11 @@ import android.app.AlertDialog;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.TextUtils;
 import android.util.Log;
 import android.view.View;
 import android.view.MotionEvent;
@@ -15,8 +17,13 @@ import android.widget.ScrollView;
 import android.widget.ImageButton;
 import android.widget.ProgressBar;
 import android.widget.Button;
+import android.widget.ListView;
 import android.widget.TextView;
 
+import java.io.BufferedReader;
+import java.io.FileInputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -54,9 +61,13 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
 
     private TextView textStatus;
     private ScrollView statusScrollView;
+    /** Auto-scroll status log only if user already at bottom — avoids jerk + outer scroll trapping. */
+    private boolean statusScrollFollowBottom = true;
     /** Ghi chú PGN dưới thanh tiến trình line. */
     private TextView textViewBookComment;
     private TextView lineDoneOverlay;
+    private TextView fenTurnBoardFlash;
+    private Runnable fenTurnFlashHideRunnable;
     private Button buttonHint;
     private Button buttonUndo;
     private Button buttonRestart;
@@ -80,14 +91,26 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
     private static final int REQUEST_MENU = 5001;
     private static final int REQUEST_GAME_SETTINGS = 5002;
     private static final int LINE_DONE_OVERLAY_MS = 1000;
+    private static final int FEN_TURN_FLASH_VISIBLE_MS = 500;
+    private static final int FEN_TURN_FLASH_FADE_MS = 120;
     private static final String PREF_COMPLETED_LINES_PREFIX = "opening_trainer_completed_";
+    private static final String PREF_OPENING_TRAINER_UI = "opening_trainer_ui";
+    private static final String PREF_CHAPTER_SELECTION_PREFIX = "opening_trainer_chapter_selection_";
+    /** New key so default Off applies after older installs had show_guide=true. */
+    private static final String PREF_KEY_SHOW_GUIDE = "show_guide_default_off_v1";
 
     private OpeningMoveTree moveTree;
     private OpeningMoveTree.Node currentNode;
     private String playAs = "white";
+    /** Side chosen on Play white / Play black (before FEN override, if any). */
+    private String intentPlayAs = "white";
+    /** Side-to-move label when chapter has FEN (flashed on board, not persisted in status log). */
+    private String fenTurnBanner = null;
     private String lastDebugLine = "";
     /** Brace comment from PGN for the half-move that led to the current board position. */
     private String activeBookComment = "";
+    /** Custom tag [Guide "..."] for the current chapter / game (Chessable export). */
+    private String currentChapterGuide = "";
     /** When non-null, shown as the first line of the status log (e.g. wrong-move banner). */
     private String statusExtraFirstLine = null;
 
@@ -106,6 +129,10 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
     private SwitchMaterial switchAutoNext;
     private Button buttonOpeningNextLine;
     private SwitchMaterial switchShuffleLines;
+    private SwitchMaterial switchShowGuide;
+    private Button buttonSelectChapters;
+    /** Per-chapter selection state (parallel to studyChaptersAll). null = all selected. */
+    private boolean[] chapterSelectionMask = null;
 
     private boolean wrongMovePendingUndo = false;
     private int wrongMoveBoardNum = -1;
@@ -140,14 +167,17 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
         final String startFen;
         final String persistentId;
         final int lineCount;
+        /** Optional [Guide "..."] from PGN headers. */
+        final String guideText;
 
-        StudyChapter(String chapterName, String chapterUrl, String pgnChunk, String startFen, String persistentId, int lineCount) {
+        StudyChapter(String chapterName, String chapterUrl, String pgnChunk, String startFen, String persistentId, int lineCount, String guideText) {
             this.chapterName = chapterName;
             this.chapterUrl = chapterUrl;
             this.pgnChunk = pgnChunk;
             this.startFen = startFen;
             this.persistentId = persistentId;
             this.lineCount = Math.max(1, lineCount);
+            this.guideText = guideText != null ? guideText : "";
         }
     }
 
@@ -167,6 +197,40 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
         return null;
     }
 
+    /** FEN field 2: active color {@code w} or {@code b}. */
+    private static Integer fenSideToMoveFromString(String fen) {
+        if (fen == null) {
+            return null;
+        }
+        String[] parts = fen.trim().split("\\s+");
+        if (parts.length < 2) {
+            return null;
+        }
+        if ("w".equalsIgnoreCase(parts[1])) {
+            return BoardConstants.WHITE;
+        }
+        if ("b".equalsIgnoreCase(parts[1])) {
+            return BoardConstants.BLACK;
+        }
+        return null;
+    }
+
+    /**
+     * Train the side to move in the chapter start position (overrides Play white/black when FEN present).
+     */
+    private void syncPlayAsFromChapterFen() {
+        Integer stm = fenSideToMoveFromString(activeChapterStartFen);
+        if (stm != null) {
+            playAs = (stm == BoardConstants.WHITE) ? "white" : "black";
+            fenTurnBanner = (stm == BoardConstants.WHITE)
+                    ? getString(R.string.opening_trainer_fen_white_to_play)
+                    : getString(R.string.opening_trainer_fen_black_to_play);
+        } else {
+            playAs = intentPlayAs;
+            fenTurnBanner = null;
+        }
+    }
+
     private static String buildChapterPersistentId(String chapterName, String chapterUrl, String chunk) {
         String base = (chapterUrl != null && !chapterUrl.isEmpty())
                 ? chapterUrl
@@ -178,6 +242,104 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
         OpeningMoveTree tmpTree = new OpeningMoveTree();
         OpeningPgnParser.parseIntoTree(chunk, tmpTree);
         return countLeafPaths(tmpTree.getRoot());
+    }
+
+    private String sanitizeChapterNameForUi(String rawName, int fallbackIndex) {
+        String name = rawName != null ? rawName : "";
+        // Common mojibake marker when source encoding is imperfect.
+        name = name.replace('\uFFFD', '-');
+        name = name.replaceAll("\\s+", " ").trim();
+        if (name.isEmpty() || "?".equals(name)) {
+            return "Chapter " + (fallbackIndex + 1);
+        }
+        return name;
+    }
+
+    private void loadChapterSelectionMaskFromPrefs() {
+        if (currentStudyKey == null || currentStudyKey.isEmpty()) {
+            chapterSelectionMask = null;
+            return;
+        }
+        SharedPreferences prefs = getSharedPreferences(PREF_OPENING_TRAINER_UI, MODE_PRIVATE);
+        String raw = prefs.getString(PREF_CHAPTER_SELECTION_PREFIX + currentStudyKey, null);
+        if (raw == null || raw.isEmpty() || studyChaptersAll.isEmpty()) {
+            chapterSelectionMask = null;
+            return;
+        }
+        if (raw.length() != studyChaptersAll.size()) {
+            chapterSelectionMask = null;
+            return;
+        }
+        boolean[] loaded = new boolean[studyChaptersAll.size()];
+        boolean hasSelected = false;
+        for (int i = 0; i < raw.length(); i++) {
+            char c = raw.charAt(i);
+            loaded[i] = (c == '1');
+            if (loaded[i]) hasSelected = true;
+        }
+        chapterSelectionMask = hasSelected ? loaded : null;
+    }
+
+    private void saveChapterSelectionMaskToPrefs() {
+        if (currentStudyKey == null || currentStudyKey.isEmpty()) return;
+        SharedPreferences prefs = getSharedPreferences(PREF_OPENING_TRAINER_UI, MODE_PRIVATE);
+        String key = PREF_CHAPTER_SELECTION_PREFIX + currentStudyKey;
+        if (chapterSelectionMask == null || chapterSelectionMask.length != studyChaptersAll.size()) {
+            prefs.edit().remove(key).apply();
+            return;
+        }
+        StringBuilder sb = new StringBuilder(chapterSelectionMask.length);
+        boolean allSelected = true;
+        boolean hasSelected = false;
+        for (boolean selected : chapterSelectionMask) {
+            sb.append(selected ? '1' : '0');
+            if (!selected) allSelected = false;
+            if (selected) hasSelected = true;
+        }
+        if (allSelected || !hasSelected) {
+            prefs.edit().remove(key).apply();
+        } else {
+            prefs.edit().putString(key, sb.toString()).apply();
+        }
+    }
+
+    private String readPgnFromFilePath(String filePath) {
+        if (filePath == null || filePath.trim().isEmpty()) {
+            return null;
+        }
+        try (FileInputStream fis = new FileInputStream(filePath);
+             BufferedReader reader = new BufferedReader(new InputStreamReader(fis, StandardCharsets.UTF_8), 64 * 1024)) {
+            StringBuilder sb = new StringBuilder();
+            char[] buf = new char[32 * 1024];
+            int n;
+            while ((n = reader.read(buf)) != -1) {
+                sb.append(buf, 0, n);
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to read PGN from file path: " + filePath, e);
+            return null;
+        }
+    }
+
+    /** Split merged PGN (several games) on a blank line before a new {@code [} header block. */
+    private static ArrayList<String> splitPgnIntoGames(String fullPgn) {
+        ArrayList<String> out = new ArrayList<>();
+        if (fullPgn == null || fullPgn.trim().isEmpty()) {
+            return out;
+        }
+        String normalized = fullPgn.replace("\r\n", "\n").replace("\r", "\n");
+        Pattern splitPat = Pattern.compile("\\n\\s*\\n(?=\\s*\\[)");
+        String[] parts = splitPat.split(normalized);
+        for (String part : parts) {
+            if (part != null) {
+                String t = part.trim();
+                if (!t.isEmpty()) {
+                    out.add(t);
+                }
+            }
+        }
+        return out;
     }
 
     private static int countLeafPaths(OpeningMoveTree.Node node) {
@@ -232,6 +394,7 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
             textStatus = findViewById(R.id.TextViewOpeningTrainerStatus);
             statusScrollView = findViewById(R.id.ScrollViewOpeningTrainerStatus);
             lineDoneOverlay = findViewById(R.id.TextViewLineDoneOverlay);
+            fenTurnBoardFlash = findViewById(R.id.TextViewFenTurnFlash);
             buttonHint = findViewById(R.id.ButtonOpeningHint);
             buttonUndo = findViewById(R.id.ButtonOpeningUndo);
             buttonRestart = findViewById(R.id.ButtonOpeningRestart);
@@ -263,12 +426,18 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
             switchAutoNext = findViewById(R.id.SwitchAutoNext);
             buttonOpeningNextLine = findViewById(R.id.ButtonOpeningNextLine);
             switchShuffleLines = findViewById(R.id.SwitchShuffleLines);
+            switchShowGuide = findViewById(R.id.SwitchShowGuide);
+            buttonSelectChapters = findViewById(R.id.ButtonSelectChapters);
             historyRecyclerView = findViewById(R.id.HistoryRecyclerView);
             switchSound = findViewById(R.id.SwitchSound);
             switchSpeech = findViewById(R.id.SwitchSpeech);
             switchFlip = findViewById(R.id.SwitchFlip);
             switchBlindfold = findViewById(R.id.SwitchBlindfold);
             if (statusScrollView != null) {
+                statusScrollView.setNestedScrollingEnabled(true);
+                statusScrollView.setOnScrollChangeListener((v, scrollX, scrollY, oldScrollX, oldScrollY) -> {
+                    statusScrollFollowBottom = isStatusInnerScrollNearBottom(scrollY);
+                });
                 statusScrollView.setOnTouchListener((v, event) -> {
                     // Keep vertical scroll gestures on log area, not the outer page ScrollView.
                     v.getParent().requestDisallowInterceptTouchEvent(true);
@@ -286,6 +455,7 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
             if (playAs == null) {
                 playAs = "white";
             }
+            intentPlayAs = playAs;
             setStatusDebug("Trainer init v1: play_as=" + playAs);
 
             gameApi = new GameApi();
@@ -366,11 +536,21 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
             }
 
             String pgn = getIntent().getStringExtra("pgn");
+            if (pgn == null || pgn.isEmpty()) {
+                String pgnFilePath = getIntent().getStringExtra("pgn_file_path");
+                if (pgnFilePath != null && !pgnFilePath.trim().isEmpty()) {
+                    pgn = readPgnFromFilePath(pgnFilePath);
+                }
+            }
             int pgnLen = pgn != null ? pgn.length() : -1;
             setStatusDebug("Trainer init v1: pgn_len=" + pgnLen);
+            if (pgn == null || pgn.trim().isEmpty()) {
+                throw new IllegalStateException("Empty PGN payload");
+            }
+            final String trainerPgn = pgn;
 
             moveTree = new OpeningMoveTree();
-            OpeningPgnParser.parseIntoTree(pgn, moveTree);
+            OpeningPgnParser.parseIntoTree(trainerPgn, moveTree);
             currentNode = moveTree.getRoot();
             computeTotals();
             setStatusDebug("Trainer init v1: parseIntoTree OK, rootChildren=" + currentNode.getEdges().size()
@@ -378,7 +558,7 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
 
             // Study line selection UI (chapters inside the study PGN).
             // We keep `pgn` as full study export; startStudyLine() will build a move tree per selected chapter.
-            initStudyLinesOrder(pgn);
+            initStudyLinesOrder(trainerPgn);
             updateStudyLineUi();
             if (buttonOpeningNextLine != null) {
                 buttonOpeningNextLine.setOnClickListener(v -> advanceToNextLineManual());
@@ -388,9 +568,22 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
             }
             if (switchShuffleLines != null) {
                 switchShuffleLines.setOnCheckedChangeListener((btn, checked) -> {
-                    initStudyLinesOrder(pgn);
+                    initStudyLinesOrder(trainerPgn);
                     // Shuffle changes meaning of line index, so restart from the first line in the new order.
                     startStudyLine(/*lineIndex=*/0, /*resetCoverage=*/true);
+                });
+            }
+
+            if (buttonSelectChapters != null) {
+                buttonSelectChapters.setOnClickListener(v -> showChapterSelectionDialog());
+            }
+
+            SharedPreferences prefsUi = getSharedPreferences(PREF_OPENING_TRAINER_UI, MODE_PRIVATE);
+            if (switchShowGuide != null) {
+                switchShowGuide.setChecked(prefsUi.getBoolean(PREF_KEY_SHOW_GUIDE, false));
+                switchShowGuide.setOnCheckedChangeListener((btn, checked) -> {
+                    prefsUi.edit().putBoolean(PREF_KEY_SHOW_GUIDE, checked).apply();
+                    updateBookCommentUi();
                 });
             }
 
@@ -508,6 +701,7 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
         }
 
         // Reset board + move history used by trainer UI.
+        syncPlayAsFromChapterFen();
         applyChapterBoardStart();
         currentNode = moveTree.getRoot();
         visitedEdgesWhite.clear();
@@ -530,6 +724,7 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
         rebuildBoard();
         playAutoOpeningMovesUntilUsersTurn();
         maybePlayBotIfNeeded(/*forced=*/false);
+        flashFenTurnOnBoardIfNeeded();
     }
 
     private void recalibrateEvalBaselineIfNeeded() {
@@ -635,9 +830,13 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
         ArrayList<StudyChapter> parsed = parseStudyChapters(fullPgn);
         if (parsed.isEmpty()) {
             String chunk = fullPgn != null ? fullPgn : "";
-            String id = buildChapterPersistentId("Line 1", "", chunk);
-            int lineCount = countLeafPathsInChunk(chunk);
-            studyChaptersAll.add(new StudyChapter("Line 1", "", chunk, extractStartFenFromChunk(chunk), id, lineCount));
+            if (OpeningPgnParser.chunkHasMoves(chunk)) {
+                String id = buildChapterPersistentId("Line 1", "", chunk);
+                int lineCount = countLeafPathsInChunk(chunk);
+                String guide = OpeningPgnParser.extractBracketTagValue(chunk, "Guide");
+                studyChaptersAll.add(new StudyChapter("Line 1", "", chunk, extractStartFenFromChunk(chunk), id, lineCount,
+                        guide != null ? guide : ""));
+            }
         } else {
             studyChaptersAll.addAll(parsed);
         }
@@ -645,16 +844,152 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
             totalLinesInStudy += c.lineCount;
         }
 
-        studyChaptersOrdered.addAll(studyChaptersAll);
+        currentStudyKey = Integer.toHexString((fullPgn != null ? fullPgn : "").hashCode());
+        loadChapterSelectionMaskFromPrefs();
+        applyChapterSelectionToOrdered();
+        loadCompletedLineKeysFromPrefs();
+        completedLines = completedLineKeys.size();
+        currentStudyLineIndex = 0;
+
+        updateSelectChaptersButtonVisibility();
+    }
+
+    private void applyChapterSelectionToOrdered() {
+        studyChaptersOrdered.clear();
+        totalLinesInStudy = 0;
+        if (chapterSelectionMask == null || chapterSelectionMask.length != studyChaptersAll.size()) {
+            studyChaptersOrdered.addAll(studyChaptersAll);
+        } else {
+            for (int i = 0; i < studyChaptersAll.size(); i++) {
+                if (chapterSelectionMask[i]) {
+                    studyChaptersOrdered.add(studyChaptersAll.get(i));
+                }
+            }
+            if (studyChaptersOrdered.isEmpty()) {
+                studyChaptersOrdered.addAll(studyChaptersAll);
+            }
+        }
+        for (StudyChapter c : studyChaptersOrdered) {
+            totalLinesInStudy += c.lineCount;
+        }
         boolean doShuffle = switchShuffleLines != null && switchShuffleLines.isChecked();
         if (doShuffle) {
             Collections.shuffle(studyChaptersOrdered, rng);
         }
+    }
 
-        currentStudyKey = Integer.toHexString((fullPgn != null ? fullPgn : "").hashCode());
-        loadCompletedLineKeysFromPrefs();
-        completedLines = completedLineKeys.size();
-        currentStudyLineIndex = 0;
+    private void updateSelectChaptersButtonVisibility() {
+        if (buttonSelectChapters == null) return;
+        buttonSelectChapters.setVisibility(studyChaptersAll.size() >= 2 ? View.VISIBLE : View.GONE);
+        updateSelectChaptersButtonLabel();
+    }
+
+    private void updateSelectChaptersButtonLabel() {
+        if (buttonSelectChapters == null) return;
+        buttonSelectChapters.setText(R.string.opening_trainer_select_chapters);
+        int total = studyChaptersAll.size();
+        int selected = studyChaptersOrdered.size();
+        String detail;
+        if (selected >= total || chapterSelectionMask == null) {
+            detail = getString(R.string.opening_trainer_select_chapters_all, total);
+        } else {
+            detail = getString(R.string.opening_trainer_select_chapters_count, selected, total);
+        }
+        CharSequence cd = TextUtils.concat(
+                buttonSelectChapters.getText(),
+                ". ",
+                detail
+        );
+        buttonSelectChapters.setContentDescription(cd);
+    }
+
+    /** True when inner status ScrollView content is scrolled to (near) bottom. */
+    private boolean isStatusInnerScrollNearBottom(int scrollY) {
+        if (statusScrollView == null) return true;
+        int childTotal = statusScrollView.getChildCount() <= 0 ? 0 : statusScrollView.getChildAt(0).getHeight();
+        int visibleBottom = scrollY + statusScrollView.getHeight();
+        return childTotal <= visibleBottom + 12;
+    }
+
+    private void maybeScrollStatusToBottom() {
+        if (statusScrollView == null || !statusScrollFollowBottom) {
+            return;
+        }
+        statusScrollView.post(() -> {
+            if (statusScrollView == null) return;
+            statusScrollFollowBottom = true;
+            statusScrollView.fullScroll(View.FOCUS_DOWN);
+        });
+    }
+
+    private void showChapterSelectionDialog() {
+        int total = studyChaptersAll.size();
+        if (total < 2) return;
+
+        String[] names = new String[total];
+        boolean[] checked = new boolean[total];
+        for (int i = 0; i < total; i++) {
+            StudyChapter ch = studyChaptersAll.get(i);
+            String safeName = sanitizeChapterNameForUi(ch.chapterName, i);
+            names[i] = (i + 1) + ". " + safeName + " (" + ch.lineCount + " lines)";
+            checked[i] = (chapterSelectionMask == null) || chapterSelectionMask[i];
+        }
+
+        AlertDialog dlg = new AlertDialog.Builder(this)
+                .setTitle(R.string.opening_trainer_select_chapters_title)
+                .setMultiChoiceItems(names, checked, (dialog, which, isChecked) -> checked[which] = isChecked)
+                .setPositiveButton(android.R.string.ok, null)
+                .setNeutralButton(R.string.opening_trainer_select_all, null)
+                .setNegativeButton(R.string.opening_trainer_clear_all, null)
+                .create();
+
+        dlg.setOnShowListener(dialog -> {
+            final ListView listView = dlg.getListView();
+
+            Button buttonOk = dlg.getButton(AlertDialog.BUTTON_POSITIVE);
+            buttonOk.setOnClickListener(v -> {
+                applyChapterSelectionFromDialog(checked);
+                dlg.dismiss();
+            });
+
+            Button buttonSelectAll = dlg.getButton(AlertDialog.BUTTON_NEUTRAL);
+            buttonSelectAll.setOnClickListener(v -> {
+                for (int i = 0; i < checked.length; i++) {
+                    checked[i] = true;
+                    listView.setItemChecked(i, true);
+                }
+            });
+
+            Button buttonClearAll = dlg.getButton(AlertDialog.BUTTON_NEGATIVE);
+            buttonClearAll.setOnClickListener(v -> {
+                for (int i = 0; i < checked.length; i++) {
+                    checked[i] = false;
+                    listView.setItemChecked(i, false);
+                }
+            });
+        });
+        dlg.show();
+    }
+
+    private void applyChapterSelectionFromDialog(boolean[] checked) {
+        boolean allSelected = true;
+        boolean noneSelected = true;
+        for (boolean b : checked) {
+            if (!b) allSelected = false;
+            if (b) noneSelected = false;
+        }
+        if (allSelected || noneSelected) {
+            chapterSelectionMask = null;
+        } else {
+            chapterSelectionMask = checked.clone();
+        }
+        saveChapterSelectionMaskToPrefs();
+        applyChapterSelectionToOrdered();
+        updateSelectChaptersButtonLabel();
+        completedLineKeys.clear();
+        completedLines = 0;
+        saveCompletedLineKeysToPrefs();
+        startStudyLine(0, true);
     }
 
     private void updateStudyLineUi() {
@@ -718,14 +1053,17 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
 
         // Build move tree for the currently selected chapter.
         StudyChapter chapter = studyChaptersOrdered.get(currentStudyLineIndex);
+        currentChapterGuide = chapter.guideText != null ? chapter.guideText : "";
         activeChapterStartFen = chapter.startFen;
+        syncPlayAsFromChapterFen();
+        refreshGuideSwitchVisibility();
         currentChapterPersistentId = chapter.persistentId;
         moveTree = new OpeningMoveTree();
         OpeningPgnParser.parseIntoTree(chapter.pgnChunk, moveTree);
         currentNode = moveTree.getRoot();
         computeTotals();
 
-        currentChapterName = chapter.chapterName;
+        currentChapterName = sanitizeChapterNameForUi(chapter.chapterName, currentStudyLineIndex);
         enumerateChapterLinesAndSelectFirst();
 
         // Reset trainer stats/coverage (optional).
@@ -771,6 +1109,7 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
 
         playAutoOpeningMovesUntilUsersTurn();
         maybePlayBotIfNeeded(/*forced=*/false);
+        flashFenTurnOnBoardIfNeeded();
     }
 
     private void startNextStudyLine(boolean resetCoverage) {
@@ -843,6 +1182,7 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
 
         playAutoOpeningMovesUntilUsersTurn();
         maybePlayBotIfNeeded(/*forced=*/false);
+        flashFenTurnOnBoardIfNeeded();
     }
 
     private void maybeAdvanceStudyLineAfterLineComplete() {
@@ -864,7 +1204,9 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
 
     private ArrayList<StudyChapter> parseStudyChapters(String fullPgn) {
         ArrayList<StudyChapter> out = new ArrayList<>();
-        if (fullPgn == null) return out;
+        if (fullPgn == null || fullPgn.trim().isEmpty()) {
+            return out;
+        }
 
         Pattern chapterNamePattern = Pattern.compile("\\[ChapterName\\s+\"([^\"]*)\"\\]");
         Pattern chapterUrlPattern = Pattern.compile("\\[ChapterURL\\s+\"([^\"]*)\"\\]");
@@ -876,28 +1218,65 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
             starts.add(m.start());
             names.add(m.group(1));
         }
-        if (starts.isEmpty()) {
-            String id = buildChapterPersistentId("Line 1", "", fullPgn);
-            int lineCount = countLeafPathsInChunk(fullPgn);
-            out.add(new StudyChapter("Line 1", "", fullPgn, extractStartFenFromChunk(fullPgn), id, lineCount));
+        if (!starts.isEmpty()) {
+            for (int i = 0; i < starts.size(); i++) {
+                int start = starts.get(i);
+                int end = (i + 1 < starts.size()) ? starts.get(i + 1) : fullPgn.length();
+                String chunk = fullPgn.substring(start, end);
+                if (!OpeningPgnParser.chunkHasMoves(chunk)) {
+                    continue;
+                }
+
+                Matcher urlMatcher = chapterUrlPattern.matcher(chunk);
+                String url = "";
+                if (urlMatcher.find()) {
+                    url = urlMatcher.group(1);
+                }
+                String chapterName = names.get(i);
+                String id = buildChapterPersistentId(chapterName, url, chunk);
+                int lineCount = countLeafPathsInChunk(chunk);
+                String guide = OpeningPgnParser.extractBracketTagValue(chunk, "Guide");
+                out.add(new StudyChapter(chapterName, url, chunk, extractStartFenFromChunk(chunk), id, lineCount,
+                        guide != null ? guide : ""));
+            }
             return out;
         }
 
-        for (int i = 0; i < starts.size(); i++) {
-            int start = starts.get(i);
-            int end = (i + 1 < starts.size()) ? starts.get(i + 1) : fullPgn.length();
-            String chunk = fullPgn.substring(start, end);
-
-            Matcher urlMatcher = chapterUrlPattern.matcher(chunk);
-            String url = "";
-            if (urlMatcher.find()) {
-                url = urlMatcher.group(1);
+        ArrayList<String> games = splitPgnIntoGames(fullPgn);
+        if (games.size() > 1) {
+            for (int i = 0; i < games.size(); i++) {
+                String chunk = games.get(i);
+                if (!OpeningPgnParser.chunkHasMoves(chunk)) {
+                    continue;
+                }
+                String ev = OpeningPgnParser.extractBracketTagValue(chunk, "Event");
+                String ch = OpeningPgnParser.extractBracketTagValue(chunk, "Chapter");
+                String name;
+                if (ev != null && !ev.trim().isEmpty()) {
+                    name = ev.trim();
+                } else if (ch != null && !ch.trim().isEmpty()) {
+                    name = ch.trim();
+                } else {
+                    name = "Game " + (i + 1);
+                }
+                String guide = OpeningPgnParser.extractBracketTagValue(chunk, "Guide");
+                String id = buildChapterPersistentId(name, "", chunk);
+                int lineCount = countLeafPathsInChunk(chunk);
+                out.add(new StudyChapter(name, "", chunk, extractStartFenFromChunk(chunk), id, lineCount,
+                        guide != null ? guide : ""));
             }
-            String chapterName = names.get(i);
-            String id = buildChapterPersistentId(chapterName, url, chunk);
-            int lineCount = countLeafPathsInChunk(chunk);
-            out.add(new StudyChapter(chapterName, url, chunk, extractStartFenFromChunk(chunk), id, lineCount));
+            return out;
         }
+
+        String single = games.isEmpty() ? fullPgn.trim() : games.get(0);
+        if (single.isEmpty() || !OpeningPgnParser.chunkHasMoves(single)) {
+            return out;
+        }
+        String id = buildChapterPersistentId("Line 1", "", single);
+        int lineCount = countLeafPathsInChunk(single);
+        String guide = OpeningPgnParser.extractBracketTagValue(single, "Guide");
+        out.add(new StudyChapter("Line 1", "", single, extractStartFenFromChunk(single), id, lineCount,
+                guide != null ? guide : ""));
         return out;
     }
 
@@ -1331,24 +1710,45 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
                 .append("\n").append(lastEvalLine);
         sb.append("\n").append(lastDebugLine);
         textStatus.setText(sb.toString());
-        if (statusScrollView != null) {
-            statusScrollView.post(() -> statusScrollView.fullScroll(View.FOCUS_DOWN));
-        }
+        maybeScrollStatusToBottom();
         updateStudyLineUi();
         updateOpeningLineProgress();
         updateBookCommentUi();
+    }
+
+    private void refreshGuideSwitchVisibility() {
+        if (switchShowGuide == null) {
+            return;
+        }
+        boolean hasGuide = currentChapterGuide != null && !currentChapterGuide.trim().isEmpty();
+        switchShowGuide.setVisibility(hasGuide ? View.VISIBLE : View.GONE);
     }
 
     private void updateBookCommentUi() {
         if (textViewBookComment == null) {
             return;
         }
-        if (activeBookComment == null || activeBookComment.trim().isEmpty()) {
+        StringBuilder sb = new StringBuilder();
+        boolean showGuide = switchShowGuide != null && switchShowGuide.isChecked();
+        if (showGuide && currentChapterGuide != null && !currentChapterGuide.trim().isEmpty()) {
+            sb.append(getString(R.string.opening_trainer_guide_label))
+                    .append(" ")
+                    .append(currentChapterGuide.trim());
+        }
+        if (activeBookComment != null && !activeBookComment.trim().isEmpty()) {
+            if (sb.length() > 0) {
+                sb.append("\n\n");
+            }
+            sb.append(getString(R.string.opening_trainer_book_comment_label))
+                    .append(" ")
+                    .append(activeBookComment.trim());
+        }
+        if (sb.length() == 0) {
             textViewBookComment.setVisibility(View.GONE);
             return;
         }
         textViewBookComment.setVisibility(View.VISIBLE);
-        textViewBookComment.setText(getString(R.string.opening_trainer_book_comment_label) + " " + activeBookComment.trim());
+        textViewBookComment.setText(sb.toString());
     }
 
     /**
@@ -1471,9 +1871,8 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
         lastDebugLine = msg;
         if (textStatus != null) {
             updateStatus();
-        }
-        if (statusScrollView != null) {
-            statusScrollView.post(() -> statusScrollView.fullScroll(View.FOCUS_DOWN));
+        } else if (statusScrollView != null) {
+            maybeScrollStatusToBottom();
         }
     }
 
@@ -1572,6 +1971,40 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
                     lineDoneOverlay.setAlpha(1f);
                 })
                 .start();
+    }
+
+    /** Brief “White to play” / “Black to play” on the board when the line uses a FEN. */
+    private void flashFenTurnOnBoardIfNeeded() {
+        if (fenTurnBoardFlash == null) {
+            return;
+        }
+        if (fenTurnFlashHideRunnable != null) {
+            uiHandler.removeCallbacks(fenTurnFlashHideRunnable);
+            fenTurnFlashHideRunnable = null;
+        }
+        fenTurnBoardFlash.animate().cancel();
+        if (fenTurnBanner == null || fenTurnBanner.isEmpty()) {
+            fenTurnBoardFlash.setVisibility(View.GONE);
+            return;
+        }
+        fenTurnBoardFlash.setText(fenTurnBanner);
+        fenTurnBoardFlash.setAlpha(1f);
+        fenTurnBoardFlash.setVisibility(View.VISIBLE);
+        fenTurnFlashHideRunnable = () -> {
+            fenTurnFlashHideRunnable = null;
+            if (fenTurnBoardFlash == null) {
+                return;
+            }
+            fenTurnBoardFlash.animate()
+                    .alpha(0f)
+                    .setDuration(FEN_TURN_FLASH_FADE_MS)
+                    .withEndAction(() -> {
+                        fenTurnBoardFlash.setVisibility(View.GONE);
+                        fenTurnBoardFlash.setAlpha(1f);
+                    })
+                    .start();
+        };
+        uiHandler.postDelayed(fenTurnFlashHideRunnable, FEN_TURN_FLASH_VISIBLE_MS);
     }
 
     private void resetHintHighlight() {

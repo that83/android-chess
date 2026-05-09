@@ -255,6 +255,8 @@
     <string name="opening_library_play_black">Play Black</string>
     <string name="opening_trainer_status_initial">Select a move to start training.</string>
     <string name="opening_trainer_status_turn">Side to move: %1$s</string>
+    <string name="opening_trainer_fen_white_to_play">White to play</string>
+    <string name="opening_trainer_fen_black_to_play">Black to play</string>
     <string name="opening_trainer_hint">Hint</string>
     <string name="opening_trainer_undo">Undo</string>
     <string name="opening_trainer_restart">Restart</string>
@@ -263,6 +265,8 @@
     <string name="opening_trainer_hint_prefix">Valid moves: %1$s</string>
     <string name="opening_trainer_wrong_move">This move is not part of the opening lines. Please try another move.</string>
     <string name="opening_trainer_book_comment_label">Ghi chú sách:</string>
+    <string name="opening_trainer_show_guide">Show Guide</string>
+    <string name="opening_trainer_guide_label">Hướng dẫn:</string>
     <string name="opening_trainer_stats_line">Coverage W: %1$s | B: %2$s\nAccuracy W: %3$s | B: %4$s</string>
     <string name="opening_trainer_stats_pending_line">Coverage+pending W: %1$s | B: %2$s\nLine ply: %3$d | Completed: %4$d</string>
 
@@ -276,6 +280,12 @@
     <string name="opening_trainer_auto_next">Auto Next</string>
     <string name="opening_trainer_next">Next</string>
     <string name="opening_trainer_shuffle">Shuffle</string>
+    <string name="opening_trainer_select_chapters">Select chap.</string>
+    <string name="opening_trainer_select_chapters_title">Select chapters to train</string>
+    <string name="opening_trainer_select_chapters_all">All %1$d chapters selected</string>
+    <string name="opening_trainer_select_chapters_count">%1$d / %2$d chapters selected</string>
+    <string name="opening_trainer_select_all">Select all</string>
+    <string name="opening_trainer_clear_all">Clear all</string>
 
     <string name="practice_set_reset">Practice set has been reset</string>
 
@@ -489,6 +499,14 @@
     <string name="opening_import_confirm_title">Import opening study</string>
     <string name="opening_import_confirm_message">Import study \"%1$s\" into the app?</string>
     <string name="opening_import_from_url">Import from URL</string>
+    <string name="opening_import_from_pgn">Import from PGN</string>
+    <string name="opening_import_pgn_title">Import PGN (paste or file)</string>
+    <string name="opening_import_pgn_hint">Paste PGN here, or use \"Choose file\" below</string>
+    <string name="opening_import_pgn_empty">PGN content is empty</string>
+    <string name="opening_import_pgn_choose_file">Choose file</string>
+    <string name="opening_import_pgn_file_reading">Reading file…</string>
+    <string name="opening_import_pgn_file_loaded">File loaded: %1$s (%2$s)</string>
+    <string name="opening_import_pgn_file_error">Failed to read file</string>
     <string name="opening_import_url_title">Import Lichess study by URL</string>
     <string name="opening_import_url_hint">Paste Lichess study URL</string>
     <string name="opening_import_name_hint">Optional name (shown in list)</string>

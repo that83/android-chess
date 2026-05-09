@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.core.widget.NestedScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:fillViewport="true"
@@ -46,11 +46,22 @@
                 android:layout_alignEnd="@id/includeboard"
                 android:layout_marginTop="2dp" />
 
+            <com.google.android.material.switchmaterial.SwitchMaterial
+                android:id="@+id/SwitchShowGuide"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_below="@id/OpeningLineProgress"
+                android:layout_alignStart="@id/includeboard"
+                android:layout_marginTop="2dp"
+                android:text="@string/opening_trainer_show_guide"
+                android:checked="false"
+                android:visibility="gone" />
+
             <TextView
                 android:id="@+id/TextViewOpeningBookComment"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_below="@id/OpeningLineProgress"
+                android:layout_below="@id/SwitchShowGuide"
                 android:layout_alignStart="@id/includeboard"
                 android:layout_alignEnd="@id/includeboard"
                 android:layout_marginTop="4dp"
@@ -76,6 +87,24 @@
                 android:shadowDx="2"
                 android:shadowDy="2"
                 android:shadowRadius="4"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/TextViewFenTurnFlash"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_alignTop="@id/includeboard"
+                android:layout_alignBottom="@id/includeboard"
+                android:layout_alignStart="@id/includeboard"
+                android:layout_alignEnd="@id/includeboard"
+                android:gravity="center"
+                android:textStyle="bold"
+                android:textSize="36sp"
+                android:textColor="#FFF8FFCC"
+                android:shadowColor="#EE000000"
+                android:shadowDx="0"
+                android:shadowDy="3"
+                android:shadowRadius="8"
                 android:visibility="gone" />
         </RelativeLayout>
 
@@ -132,38 +161,58 @@
             android:paddingTop="6dp"
             android:paddingBottom="2dp"/>
 
-        <LinearLayout
-            android:id="@+id/OpeningTrainerStudyLineControls"
+        <HorizontalScrollView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:paddingBottom="2dp">
+            android:scrollbars="none"
+            android:fillViewport="false">
 
-            <com.google.android.material.switchmaterial.SwitchMaterial
-                android:id="@+id/SwitchAutoNext"
+            <LinearLayout
+                android:id="@+id/OpeningTrainerStudyLineControls"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_margin="4dp"
-                android:text="@string/opening_trainer_auto_next"
-                android:checked="true"/>
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingBottom="2dp">
 
-            <Button
-                android:id="@+id/ButtonOpeningNextLine"
-                style="@style/ChessButton"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginLeft="4dp"
-                android:text="@string/opening_trainer_next"/>
+                <com.google.android.material.switchmaterial.SwitchMaterial
+                    android:id="@+id/SwitchAutoNext"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_margin="4dp"
+                    android:text="@string/opening_trainer_auto_next"
+                    android:checked="true"/>
 
-            <com.google.android.material.switchmaterial.SwitchMaterial
-                android:id="@+id/SwitchShuffleLines"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_margin="4dp"
-                android:text="@string/opening_trainer_shuffle"
-                android:checked="false"/>
-        </LinearLayout>
+                <Button
+                    android:id="@+id/ButtonOpeningNextLine"
+                    style="@style/ChessButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginLeft="4dp"
+                    android:text="@string/opening_trainer_next"/>
+
+                <com.google.android.material.switchmaterial.SwitchMaterial
+                    android:id="@+id/SwitchShuffleLines"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_margin="4dp"
+                    android:text="@string/opening_trainer_shuffle"
+                    android:checked="false"/>
+
+                <Button
+                    android:id="@+id/ButtonSelectChapters"
+                    style="@style/ChessButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginLeft="4dp"
+                    android:minHeight="48dp"
+                    android:maxLines="1"
+                    android:gravity="center"
+                    android:ellipsize="end"
+                    android:text="@string/opening_trainer_select_chapters"
+                    android:visibility="gone"/>
+            </LinearLayout>
+        </HorizontalScrollView>
 
         <ScrollView
             android:id="@+id/ScrollViewOpeningTrainerStatus"
@@ -171,12 +220,15 @@
             android:layout_height="180dp"
             android:layout_marginTop="6dp"
             android:fillViewport="true"
+            android:nestedScrollingEnabled="true"
             android:scrollbars="vertical">
 
             <TextView
                 android:id="@+id/TextViewOpeningTrainerStatus"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:focusable="false"
+                android:focusableInTouchMode="false"
                 android:textAppearance="?android:attr/textAppearanceSmall"
                 android:text="@string/opening_trainer_status_initial"
                 android:paddingTop="6dp"
@@ -184,5 +236,5 @@
         </ScrollView>
     </LinearLayout>
 
-</ScrollView>
+</androidx.core.widget.NestedScrollView>
 
