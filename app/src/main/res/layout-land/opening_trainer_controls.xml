@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:visibility="gone">
+        <ImageButton
+            android:id="@+id/ButtonEco"
+            android:src="@drawable/ic_signpost_split"
+            android:contentDescription="ECO openings"
+            style="@style/ChessImageButton" />
+        <TextView
+            android:id="@+id/TextViewEco"
+            style="@style/MyPaneTextStyle2Lines"
+            android:text="--"
+            android:layout_width="match_parent"
+            android:layout_height="38dip"
+            android:layout_marginLeft="8dip"
+            android:layout_marginRight="8dip"/>
+    </LinearLayout>
+
+    <com.google.android.flexbox.FlexboxLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        app:flexDirection="row"
+        app:flexWrap="wrap"
+        app:justifyContent="flex_start"
+        app:alignItems="center">
+        <com.google.android.material.switchmaterial.SwitchMaterial
+            android:id="@+id/SwitchBlindfold"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_margin="4dp"
+            android:text="@string/pref_show_blindfold"
+            android:checked="false"/>
+        <com.google.android.material.switchmaterial.SwitchMaterial
+            android:id="@+id/SwitchSound"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_margin="4dp"
+            android:text="@string/pref_sound"
+            android:checked="false"/>
+        <com.google.android.material.switchmaterial.SwitchMaterial
+            android:id="@+id/SwitchFlip"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_margin="4dp"
+            android:text="@string/menu_flip"
+            android:checked="false"/>
+        <com.google.android.material.switchmaterial.SwitchMaterial
+            android:id="@+id/SwitchSpeech"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_margin="4dp"
+            android:text="@string/pref_speech"
+            android:checked="false"/>
+    </com.google.android.flexbox.FlexboxLayout>
+
+    <TextView
+        android:id="@+id/TextViewWhitePieces"
+        style="@style/MyPaneTextStyle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dip"
+        android:layout_marginLeft="8dip"
+        android:layout_marginRight="8dip"
+        android:accessibilityLiveRegion="none"
+        android:visibility="gone"/>
+    <TextView
+        android:id="@+id/TextViewBlackPieces"
+        style="@style/MyPaneTextStyle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dip"
+        android:layout_marginLeft="8dip"
+        android:layout_marginRight="8dip"
+        android:accessibilityLiveRegion="none"
+        android:visibility="gone"/>
+
+</LinearLayout>

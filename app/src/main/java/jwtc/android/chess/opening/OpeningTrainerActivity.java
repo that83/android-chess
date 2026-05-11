@@ -472,7 +472,7 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
                 buttonMenu.setOnClickListener(v -> menuDialog.show());
             }
             if (buttonPrev != null) {
-                buttonPrev.setOnClickListener(v -> undoLastMove());
+                buttonPrev.setOnClickListener(v -> stepBackOneMove());
                 buttonPrev.setOnLongClickListener(v -> {
                     if (wrongMovePendingUndo) {
                         undoWrongMoveIfPending();
@@ -1683,6 +1683,26 @@ public class OpeningTrainerActivity extends ChessBoardActivity implements Engine
         if (jni.getNumBoard() > 1) {
             gameApi.undoMove();
         }
+        statusExtraFirstLine = null;
+        resetHintHighlight();
+        syncTrainerStateFromBoard();
+        rebuildBoard();
+        updateSelectedSquares();
+        updateStatus();
+        maybePlayBotIfNeeded(/*forced=*/false);
+    }
+
+    /** Back button (<): step back exactly one half-move. */
+    private void stepBackOneMove() {
+        JNI jni = JNI.getInstance();
+        if (wrongMovePendingUndo) {
+            undoWrongMoveIfPending();
+            return;
+        }
+        if (jni.getNumBoard() <= 1) {
+            return;
+        }
+        gameApi.undoMove();
         statusExtraFirstLine = null;
         resetHintHighlight();
         syncTrainerStateFromBoard();
